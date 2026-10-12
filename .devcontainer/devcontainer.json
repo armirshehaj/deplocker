@@ -20,17 +20,28 @@
     // Host venv links to a host-only interpreter; keep the container's apart.
     "source=deplocker-venv,target=${localWorkspaceFolder}/backend/.venv,type=volume",
     // Keeps the `gh auth login` session across rebuilds.
-    "source=deplocker-gh,target=/home/vscode/.config/gh,type=volume"
+    "source=deplocker-gh,target=/home/vscode/.config/gh,type=volume",
+    // Keeps Claude Code's conversations, memory and login across rebuilds.
+    "source=deplocker-claude,target=/home/vscode/.claude,type=volume"
   ],
+
+  // Moves ~/.claude.json, Claude Code's account and project state, into the volume.
+  "containerEnv": { "CLAUDE_CONFIG_DIR": "/home/vscode/.claude" },
 
   // Shares loopback with the host: Vite's proxy reaches the api on 127.0.0.1:8080
   // and the host browser reaches Vite on lvh.me:5173. Linux hosts only.
   "runArgs": ["--network=host"],
 
-  "postCreateCommand": "sudo chown vscode backend/.venv /home/vscode/.config/gh && make backend-install-local frontend-install-ci",
+  "postCreateCommand": "sudo chown vscode backend/.venv /home/vscode/.config/gh /home/vscode/.claude && make backend-install-local frontend-install-ci",
 
   "customizations": {
     "vscode": {
+      // Host networking already exposes the container's ports; a forward would
+      // bind the same host port and take it from the dev server.
+      "settings": {
+        "remote.autoForwardPorts": false,
+        "remote.restoreForwardedPorts": false
+      },
       "extensions": [
         "ms-python.python",
         "charliermarsh.ruff",
