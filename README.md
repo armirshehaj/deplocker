@@ -59,8 +59,8 @@ flowchart LR
 | `caddy` | The server's web server, in production only. It holds the certificates for the web app's and the API's domains and hands each request to the right container | `80`, `443` |
 | `api` | The REST API ([FastAPI](https://fastapi.tiangolo.com/)) | `127.0.0.1:8080`, in development only |
 | `ui` | The web app (React, Vite, Tailwind), served by nginx | `8082`, in development only |
-| `postgres` | The main database | `5435` |
-| `redis-stack` | Login sessions | `6380` |
+| `postgres` | The main database | `5435`, in development only |
+| `redis-stack` | Login sessions | `6380`, in development only |
 
 The backend's inner workings are described in
 [backend/CLAUDE.md](backend/CLAUDE.md), and its database, table by table, in

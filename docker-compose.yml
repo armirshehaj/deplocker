@@ -27,6 +27,8 @@ services:
       - ./backend:/app
       - /app/.venv   # keep the image's venv; don't let the bind mount above hide it
     ports:
+      # The frontend's API address: the Vite proxy and the ui bundle call
+      # localhost:8080
       - "127.0.0.1:8080:8080"
     # Reloads on every change to the bind-mounted source
     command: ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--host", "0.0.0.0",
@@ -52,6 +54,8 @@ services:
     container_name: deplocker_postgres
     env_file: /etc/deplocker/.env
     ports:
+      # Host access for database clients such as psql; the stack itself connects
+      # over the compose network. 5435 leaves 5432 to a Postgres on the host
       - "5435:5432"
     volumes:
       - ./backend/scripts/init-scripts:/docker-entrypoint-initdb.d
@@ -69,6 +73,8 @@ services:
     container_name: deplocker_redis
     env_file: /etc/deplocker/.env
     ports:
+      # Host access for redis-cli, as on postgres. 6380 leaves 6379 to a Redis on
+      # the host
       - "6380:6379"
     volumes:
       - redis_data:/data
@@ -94,6 +100,7 @@ services:
     image: deplocker-ui:${IMAGE_TAG:-latest}
     container_name: deplocker-ui
     ports:
+      # The production build of the web app, at localhost:8082 (`make start-prod`)
       - "8082:80"
     restart: always
 
