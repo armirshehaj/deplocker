@@ -1,5 +1,5 @@
 import uuid
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -36,14 +36,7 @@ async def authenticated_client(client: AsyncClient) -> AsyncClient:
     """Registers, confirms and logs in a test user, leaving `client` holding
     a valid `session_id` cookie for requests against protected routes."""
 
-    fake_task_result = MagicMock()
-    fake_task_result.id = "550e8400-e29b-41d4-a716-446655440000"
-
-    with patch(
-        "app.routers.auth.deplocker_auth.send_confirmation_email.delay",
-        return_value=fake_task_result,
-    ):
-        await client.post("/auth/register", json=AUTH_TEST_USER)
+    await client.post("/auth/register", json=AUTH_TEST_USER)
 
     token = generate_jwt(sub=AUTH_TEST_USER["email"])
     await client.post(
@@ -253,6 +246,25 @@ async def application_create_test(
 
     response: Response = await application_factory(**payload)
     return response
+
+
+@pytest.fixture(autouse=True)
+def mock_smtp() -> Generator[MagicMock, None, None]:
+    """Stands in for the SMTP server; the emails sent reach the `send_message` of
+    `mock_smtp.return_value.__enter__.return_value`."""
+    with patch("smtplib.SMTP") as smtp:
+        yield smtp
+
+
+@pytest.fixture(autouse=True)
+def mock_dns() -> Generator[MagicMock, None, None]:
+    """Stands in for the DNS lookup of an address's domain, which accepts email
+    unless a test gives `mock_dns` a side effect."""
+    with patch(
+        "email_validator.deliverability.validate_email_deliverability",
+        return_value={"mx": [(10, "mx.deplocker.com")], "mx_fallback_type": None},
+    ) as lookup:
+        yield lookup
 
 
 @pytest.fixture(autouse=True)

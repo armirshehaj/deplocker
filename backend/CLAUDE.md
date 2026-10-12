@@ -12,9 +12,6 @@ uv sync --dev --frozen     # install all deps (locked)
 # Run the API (inside container or with env loaded)
 uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 
-# Run the Celery worker alongside the API
-celery -A app.tasks.celery_app worker
-
 # Lint and format
 ruff check .
 ruff format .
@@ -33,7 +30,7 @@ alembic revision --autogenerate -m "description"
 
 ## Environment
 
-Settings come from real environment variables; compose injects them by reading `/etc/deplocker/.env` on the host (`env_file:` in `docker-compose.yml`). `app/core/conf.py` also accepts a dotenv file at `$ENV_FILE`, defaulting to `.env` in the working directory — a fallback for running the app outside compose, since environment variables take precedence. Copy `.env.example` to `/etc/deplocker/.env`. Required variables: Postgres connection, `TEST_DB`, `ENVIRONMENT` (`dev`|`production`), frontend URLs, `SECRET_KEY`/`ALGORITHM`/`ACCESS_TOKEN_EXPIRES_MINUTES`, RabbitMQ credentials, Redis credentials, and SMTP email credentials.
+Settings come from real environment variables; compose injects them by reading `/etc/deplocker/.env` on the host (`env_file:` in `docker-compose.yml`). `app/core/conf.py` also accepts a dotenv file at `$ENV_FILE`, defaulting to `.env` in the working directory — a fallback for running the app outside compose, since environment variables take precedence. Copy `.env.example` to `/etc/deplocker/.env`. Required variables: Postgres connection, `TEST_DB`, `ENVIRONMENT` (`dev`|`production`), frontend URLs, `SECRET_KEY`/`ALGORITHM`/`ACCESS_TOKEN_EXPIRES_MINUTES`, Redis credentials, and SMTP email credentials.
 
 ## Architecture
 
@@ -75,9 +72,15 @@ A membership's role ranks `OWNER` over `ADMIN` over `MEMBER`, each holding the p
 - `ADMIN` also creates and updates projects and applications, since an application's config decides what code runs, with which secrets, on which domain.
 - `OWNER` also deletes projects, applications and deployments.
 
-### Celery / async tasks
+### Confirmation emails
 
-`app/tasks/celery_app.py` configures Celery with RabbitMQ as the broker and Redis as the result backend. The worker runs as the `worker` Compose service, from the api image and without its migration step. Currently the only task is `send_confirmation_email` in `app/tasks/account_confirmation.py`. After dispatching a task, the API returns a `task_id` which the frontend polls via `GET /tasks/{task_id}` until `SUCCESS` or `FAILURE`.
+`send_confirmation_email` (`app/utils/email/confirmation.py`) sends the activation link within the request, running the SMTP exchange in the threadpool, and answers 503 when the send fails. Registration sends it before committing the new account and rolls back on failure, so the address can sign up again.
+
+A mail server accepts a message for any address and reports a failed delivery later, as a bounce to the sender's mailbox, so a successful send does not mean the address exists. Registration first calls `ensure_deliverable` (`app/utils/email/deliverability.py`), which answers 422 when DNS shows the domain cannot receive email: it does not exist, or has no MX, A or AAAA record. An address at a real domain with a mistyped mailbox still passes; its account stays inactive.
+
+An account must be confirmed within `CONFIRMATION_WINDOW` (24 hours) of signup, and every confirmation link expires with that window (`app/utils/auth/confirmation.py`). Until then, a password login answers 403 with the address on file, so the client can resend the link (`POST /auth/account/confirm/retry`) or move the account to a corrected address (`POST /auth/account/email`, which takes the password as proof of ownership). Past the window the account is released: login, resend and the address change answer 410, `check-username` reports the username free, and registration and the address change call `delete_released_accounts` first, which deletes released accounts with their default organizations. A Google or GitHub login confirms an unconfirmed account with the same email, since the provider verified the address.
+
+The stack runs no task queue or worker. One comes with the first feature that needs work beyond a request, such as deployment builds, with Redis as its broker.
 
 ### Redis
 
@@ -91,4 +94,4 @@ Any model change needs a migration: CI runs `make backend-migrations-ci`, which 
 
 ### Testing
 
-Tests are async (`anyio` with asyncio backend). The `test_db_session` fixture connects to `TEST_DB`, wraps each test in a transaction that rolls back on teardown, and the `client` fixture overrides `get_db_session` with that session. Redis is expected to be available during test runs (use `fakeredis` for unit tests of cache-dependent code). The `docker-compose.test.yml` provides a self-contained CI environment.
+Tests are async (`anyio` with asyncio backend). The `test_db_session` fixture connects to `TEST_DB`, wraps each test in a transaction that rolls back on teardown, and the `client` fixture overrides `get_db_session` with that session. Redis is expected to be available during test runs (use `fakeredis` for unit tests of cache-dependent code). In integration tests, the autouse `mock_smtp` fixture stands in for the SMTP server and records the emails sent, and the autouse `mock_dns` fixture stands in for the lookup of an address's mail domain. The `docker-compose.test.yml` provides a self-contained CI environment.

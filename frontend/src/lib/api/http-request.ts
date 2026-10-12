@@ -4,7 +4,8 @@ import { networkErrorToasterMessage } from "@/globals";
 import { APICallParams, RequestParams } from "./types";
 import * as z from "zod";
 
-export type APICallResult<T> = [T | null, string | null];
+// The third element is a failed response's body, for callers that read fields beyond `detail`
+export type APICallResult<T> = [T | null, string | null, unknown?];
 
 export default class HttpRequest {
   endpointURL: string;
@@ -49,7 +50,7 @@ export default class HttpRequest {
 
       if (!response.ok) {
         const serverErrorDetail = data.detail;
-        return [null, serverErrorDetail];
+        return [null, serverErrorDetail, data];
       }
 
       if (schema) {

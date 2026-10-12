@@ -47,27 +47,6 @@ services:
       # instead of after the first 30s interval
       start_interval: 2s
 
-  # Runs the background jobs that api queues on RabbitMQ
-  worker:
-    image: deplocker-api:${IMAGE_TAG:-latest}
-    container_name: deplocker-worker
-    pull_policy: never
-    env_file: /etc/deplocker/.env
-    environment:
-      # Forwarded as on api: confirmation links point at the frontend origin
-      - DEV_FRONTEND_URL
-    volumes:
-      - ./backend:/app
-      - /app/.venv
-    # Skips the image's migration step, which api runs
-    entrypoint: []
-    command: ["uv", "run", "--no-sync", "celery", "-A", "app.tasks.celery_app", "worker"]
-    depends_on:
-      rabbitmq:
-        condition: service_started
-      redis-stack:
-        condition: service_healthy
-
   postgres:
     image: postgres:18.1
     container_name: deplocker_postgres
@@ -84,17 +63,6 @@ services:
       timeout: 20s
       retries: 5
       start_period: 30s
-
-  rabbitmq:
-    image: rabbitmq:3.13-management
-    container_name: deplocker_rabbitmq
-    env_file: /etc/deplocker/.env
-    ports:
-      - "5672:5672" # AMQP port
-      - "15672:15672" # Management UI port
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    restart: unless-stopped
 
   redis-stack:
     image: redis/redis-stack:latest
@@ -131,5 +99,4 @@ services:
 
 volumes:
   pgdata:
-  rabbitmq_data:
   redis_data:

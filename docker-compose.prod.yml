@@ -42,12 +42,6 @@ services:
     # Kept out of docker-compose.yml, so `make start-dev` fails as soon as api exits
     restart: unless-stopped
 
-  worker:
-    # Runs the code baked into the image
-    volumes: !reset []
-    # Kept out of docker-compose.yml, as on api
-    restart: unless-stopped
-
   ui:
     ports: !reset []
 

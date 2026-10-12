@@ -31,12 +31,6 @@ class Settings(BaseSettings):
     ALGORITHM: str
     ACCESS_TOKEN_EXPIRES_MINUTES: int
 
-    RABBITMQ_DEFAULT_USER: str
-    RABBITMQ_DEFAULT_PASS: str
-    RABBITMQ_HOST: str
-    RABBITMQ_PORT: int
-    RABBITMQ_DEFAULT_VHOST: str
-
     REDIS_HOST: str
     REDIS_PORT: int
     REDIS_PASSWORD: str

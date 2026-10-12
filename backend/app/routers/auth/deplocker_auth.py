@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any
 
 import jwt
@@ -11,26 +12,27 @@ from fastapi.responses import JSONResponse
 # request signature, and an unresolved name fails only once a request arrives.
 from fastapi.security import OAuth2PasswordRequestForm  # noqa: TC002
 from pydantic import EmailStr  # noqa: TC002
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, func, not_, select
 
 from app.core import redis
 from app.core.conf import settings
 from app.core.database import get_db_session
 from app.models import UserModel
-from app.schemas.auth import SessionData, UserRegister
-from app.tasks.account_confirmation import send_confirmation_email
-from app.utils.auth.deplocker_auth import (
-    authenticate_user,
-    generate_jwt,
-    get_password_hash,
+from app.schemas.auth import SessionData, UnconfirmedEmailChange, UserRegister
+from app.utils.auth.confirmation import (
+    delete_released_accounts,
+    ensure_awaiting_confirmation,
+    generate_confirmation_token,
+    released_account,
 )
+from app.utils.auth.deplocker_auth import authenticate_user, get_password_hash
 from app.utils.auth.shared import _add_default_organization, _login_response
+from app.utils.email.confirmation import send_confirmation_email
+from app.utils.email.deliverability import ensure_deliverable
 
 from . import router
 
 if TYPE_CHECKING:
-    from celery import Task
-    from celery.result import AsyncResult
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -42,7 +44,7 @@ async def check_username_availability(
     username: str, db_session: AsyncSession = Depends(get_db_session)
 ) -> dict[str, bool]:
     result = await db_session.execute(
-        select(exists().where(UserModel.username == username))
+        select(exists().where(UserModel.username == username, not_(released_account())))
     )
 
     return {"available": not result.scalar()}
@@ -52,6 +54,7 @@ async def check_username_availability(
 async def register_new_user(
     payload: UserRegister, db_session: AsyncSession = Depends(get_db_session)
 ) -> JSONResponse:
+    await delete_released_accounts(db_session)
 
     existing_email = await db_session.scalar(
         select(UserModel.email).where(UserModel.email == payload.email)
@@ -62,6 +65,17 @@ async def register_new_user(
             detail=f"'{payload.email}' email already exists!",
         )
 
+    existing_username = await db_session.scalar(
+        select(UserModel.username).where(UserModel.username == payload.username)
+    )
+    if existing_username:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"'{payload.username}' username is already taken!",
+        )
+
+    await ensure_deliverable(payload.email)
+
     new_user = UserModel(
         username=payload.username,
         email=payload.email,
@@ -71,13 +85,16 @@ async def register_new_user(
     db_session.add(new_user)
     await db_session.flush()
     await _add_default_organization(db_session, new_user)
-    await db_session.commit()
-    await db_session.refresh(new_user)
 
-    confirmation_email_task: Task = send_confirmation_email
-    jwt_token = generate_jwt(sub=new_user.email, expire_minutes=24 * 60)
-    result: AsyncResult = confirmation_email_task.delay(new_user.email, jwt_token)
-    task_id = result.id
+    jwt_token = generate_confirmation_token(new_user.email, datetime.now())
+    try:
+        await send_confirmation_email(new_user.email, jwt_token)
+    except HTTPException:
+        # Undoes the account, so the address can sign up again
+        await db_session.rollback()
+        raise
+
+    await db_session.commit()
 
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
@@ -86,7 +103,6 @@ async def register_new_user(
                 "Signup request successfully completed! "
                 "You will shortly recieve a verification request in your email address..."
             ),
-            "email_task_id": task_id,
         },
     )
 
@@ -129,26 +145,80 @@ async def confirm_new_account(
 
     else:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(
-                "New account was not found in the system! "
-                "Something must be wrong! Please, try the registration again."
-            ),
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No account uses {subject}. Please sign up again.",
         )
 
 
 @router.post("/account/confirm/retry")
-async def resend_confirmation_email(email: EmailStr) -> JSONResponse:
-    confirmation_email_task: Task = send_confirmation_email
-    jwt_token = generate_jwt(sub=email)
-    result: AsyncResult = confirmation_email_task.delay(email, jwt_token)
-    task_id = result.id
+async def resend_confirmation_email(
+    email: EmailStr, db_session: AsyncSession = Depends(get_db_session)
+) -> JSONResponse:
+    db_user: UserModel | None = await db_session.scalar(
+        select(UserModel).where(UserModel.email == email)
+    )
+    if db_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No account uses {email}. Please sign up again.",
+        )
+    ensure_awaiting_confirmation(db_user)
+
+    jwt_token = generate_confirmation_token(email, db_user.created_at)
+    await send_confirmation_email(email, jwt_token)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"message": "A new confirmation email was sent to your address."},
+    )
+
+
+@router.post(
+    "/account/email",
+    summary="Move an account awaiting confirmation to another email address",
+)
+async def change_unconfirmed_email(
+    payload: UnconfirmedEmailChange,
+    db_session: AsyncSession = Depends(get_db_session),
+) -> JSONResponse:
+    db_user = await authenticate_user(db_session, payload.identifier, payload.password)
+    if db_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect credentials were provided.",
+        )
+    ensure_awaiting_confirmation(db_user)
+
+    await delete_released_accounts(db_session)
+    email_taken = await db_session.scalar(
+        select(
+            exists().where(UserModel.email == payload.email, UserModel.id != db_user.id)
+        )
+    )
+    if email_taken:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"'{payload.email}' email already exists!",
+        )
+
+    await ensure_deliverable(payload.email)
+
+    db_user.email = payload.email
+    jwt_token = generate_confirmation_token(payload.email, db_user.created_at)
+    try:
+        await send_confirmation_email(payload.email, jwt_token)
+    except HTTPException:
+        # Keeps the account on its previous address
+        await db_session.rollback()
+        raise
+
+    await db_session.commit()
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
-            "message": "A new confirmation request is being sent is being to your email.",
-            "email_task_id": task_id,
+            "message": f"A new confirmation email was sent to {payload.email}.",
+            "email": payload.email,
         },
     )
 
@@ -165,7 +235,21 @@ async def login(
     if not db_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Failed to authenticate! Incorrect credentials were provided, or the account is not yet activated.",
+            detail="Failed to authenticate! Incorrect credentials were provided.",
+        )
+
+    if not db_user.is_active:
+        ensure_awaiting_confirmation(db_user)
+        # `email` lets the client offer to resend the link or change the address
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={
+                "detail": (
+                    "Your account is not confirmed yet. "
+                    f"The confirmation link was sent to {db_user.email}."
+                ),
+                "email": db_user.email,
+            },
         )
 
     db_user.last_login = func.now()

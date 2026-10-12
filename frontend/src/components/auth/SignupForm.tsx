@@ -23,20 +23,14 @@ import {
 import { zodResolver } from "@hookform/resolvers/zod";
 import HttpRequest from "@/lib/api/http-request";
 import { toast } from "react-toastify";
-import { useAtom } from "jotai";
-import { emailTaskIDAtom } from "@/store/auth.atoms";
-import useTaskStatusPolling from "@/lib/hooks/task-polling";
-import {
-  emailTaskFailureMessage,
-  emailTaskSuccessMessage,
-} from "../../constants/auth";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../shadcn/button";
 import GoogleIcon from "@/lib/icons/GoogleIcon";
 import { Eye, EyeOff } from "lucide-react";
 
 export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
-  const [emailTaskID, setEmailTaskID] = useAtom(emailTaskIDAtom);
+  const navigate = useNavigate();
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(
     null,
   );
@@ -78,13 +72,6 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
     return () => clearTimeout(timer);
   }, [username]);
 
-  useTaskStatusPolling(
-    emailTaskID,
-    setEmailTaskID,
-    emailTaskSuccessMessage,
-    emailTaskFailureMessage,
-  );
-
   const onToggglePasswordVisibility = () => {
     setShowPassword((prevState) => !prevState);
   };
@@ -101,8 +88,7 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
 
     const [response, error] = await request.send(RegisterResponse);
     if (response) {
-      toast.info(response.message);
-      setEmailTaskID(response.email_task_id);
+      navigate(`/account/pending?email=${encodeURIComponent(data.email)}`);
     }
 
     if (error) {

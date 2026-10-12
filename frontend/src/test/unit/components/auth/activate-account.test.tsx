@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { Provider } from "jotai";
 
 const mockSend = vi.hoisted(() => vi.fn());
-const mockPolling = vi.hoisted(() => vi.fn());
 const mockToastError = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api/http-request", () => ({
@@ -13,35 +11,26 @@ vi.mock("@/lib/api/http-request", () => ({
   },
 }));
 
-vi.mock("@/lib/hooks/task-polling", () => ({
-  default: mockPolling,
-}));
-
 vi.mock("react-toastify", () => ({
   toast: { error: mockToastError },
 }));
 
 import { ActivateAccount } from "@/components/auth/ActivateAccount";
 
-const EMAIL_TASK_ID = "3f1c2a9e-8b7d-4c6e-9f2a-1b3c4d5e6f70";
-
 function renderPage(query = "?email=john@example.com&token=abc") {
   render(
-    <Provider>
-      <MemoryRouter initialEntries={[`/account/confirm${query}`]}>
-        <Routes>
-          <Route path="/account/confirm" element={<ActivateAccount />} />
-          <Route path="/login" element={<p>Login page</p>} />
-        </Routes>
-      </MemoryRouter>
-    </Provider>,
+    <MemoryRouter initialEntries={[`/account/confirm${query}`]}>
+      <Routes>
+        <Route path="/account/confirm" element={<ActivateAccount />} />
+        <Route path="/login" element={<p>Login page</p>} />
+      </Routes>
+    </MemoryRouter>,
   );
 }
 
 describe("ActivateAccount", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.clear();
   });
 
   it("shows the confirmed state and leads to sign in", async () => {
@@ -86,13 +75,10 @@ describe("ActivateAccount", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("sends a new email and polls its task", async () => {
+  it("sends a new email", async () => {
     mockSend
       .mockResolvedValueOnce([null, "Activation token has expired."])
-      .mockResolvedValueOnce([
-        { message: "Sending", email_task_id: EMAIL_TASK_ID },
-        null,
-      ]);
+      .mockResolvedValueOnce([{ message: "Sent" }, null]);
     renderPage();
 
     fireEvent.click(
@@ -103,12 +89,6 @@ describe("ActivateAccount", () => {
       await screen.findByRole("heading", { name: "Check your inbox" }),
     ).toBeInTheDocument();
     expect(screen.getByText(/john@example\.com/)).toBeInTheDocument();
-    expect(mockPolling).toHaveBeenLastCalledWith(
-      EMAIL_TASK_ID,
-      expect.any(Function),
-      expect.any(String),
-      expect.any(String),
-    );
   });
 
   it("returns to the failed state when the new email cannot be sent", async () => {

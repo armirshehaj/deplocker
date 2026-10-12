@@ -319,7 +319,7 @@ publish-ci: backend-publish-ci frontend-publish-ci
 ##
 ## Deliberately not `start-prod`: that depends on $(BUILD_DEV_STAMP), which
 ## would rebuild `ui` with the dev stack's localhost API_URL and overwrite the
-## image built with FRONTEND_API_URL. `api`, `worker` and `ui` are
+## image built with FRONTEND_API_URL. `api` and `ui` are
 ## `pull_policy: never`, so this runs the local images `ci` built from
 ## IMAGE_SHA and never reaches the registry.
 ##

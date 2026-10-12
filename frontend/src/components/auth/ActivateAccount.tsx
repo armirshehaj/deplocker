@@ -4,13 +4,6 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { Button } from "../shadcn/button";
 import HttpRequest from "@/lib/api/http-request";
-import { useAtom } from "jotai";
-import { emailTaskIDAtom } from "@/store/auth.atoms";
-import useTaskStatusPolling from "@/lib/hooks/task-polling";
-import {
-  emailTaskFailureMessage,
-  emailTaskSuccessMessage,
-} from "../../constants/auth";
 import { SuccessReponse } from "@/schemas/shared";
 import { ResendConfirmationResponse } from "@/schemas/auth";
 
@@ -21,7 +14,6 @@ export function ActivateAccount() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [status, setStatus] = useState<ConfirmationStatus>("confirming");
-  const [emailTaskID, setEmailTaskID] = useAtom(emailTaskIDAtom);
 
   const email = searchParams.get("email");
   const token = searchParams.get("token");
@@ -51,13 +43,6 @@ export function ActivateAccount() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useTaskStatusPolling(
-    emailTaskID,
-    setEmailTaskID,
-    emailTaskSuccessMessage,
-    emailTaskFailureMessage,
-  );
-
   const resendConfirmationEmail = async () => {
     setStatus("resending");
     const endpointURL = `${API_URL}/auth/account/confirm/retry?email=${email}`;
@@ -65,7 +50,6 @@ export function ActivateAccount() {
     const [response, error] = await request.send(ResendConfirmationResponse);
 
     if (response) {
-      setEmailTaskID(response.email_task_id);
       setStatus("resent");
     }
 

@@ -1,6 +1,6 @@
 # Self-contained CI stack: builds the backend's `test` stage and runs pytest
 # against a throwaway Postgres. Redis is faked in-process (see
-# tests/integration/conftest.py), so no cache or broker service is needed.
+# tests/integration/conftest.py), so no cache service is needed.
 #
 #   docker compose -f docker-compose.test.yml up \
 #       --build --exit-code-from api --abort-on-container-exit
@@ -37,13 +37,6 @@ services:
       SECRET_KEY: 379afe51b95194f76028340e1ab89cc309cd52e9a1d018f986bc3e857257471d
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRES_MINUTES: 1440
-
-      # RabbitMQ — no broker runs here; Celery tasks are never dispatched in tests.
-      RABBITMQ_DEFAULT_USER: admin
-      RABBITMQ_DEFAULT_PASS: deplocker_rabbitmq
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_DEFAULT_VHOST: deplocker
 
       # Redis — settings must validate, but the client is monkeypatched to fakeredis.
       REDIS_HOST: redis-stack

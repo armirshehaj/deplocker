@@ -59,7 +59,6 @@ describe("RegisterResponse", () => {
   const validResponse = {
     message:
       "Signup request successfully completed! You will shortly recieve a verification request in your email address...",
-    email_task_id: crypto.randomUUID(),
   };
 
   it("passes with valid data", async () => {
@@ -73,15 +72,6 @@ describe("RegisterResponse", () => {
       RegisterResponse.parseAsync({
         ...validResponse,
         message: "User successfully registered!",
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("fails with invalid task_id", async () => {
-    await expect(
-      RegisterRequest.parseAsync({
-        ...validResponse,
-        email_task_id: "not-a-uuid",
       }),
     ).rejects.toThrow();
   });

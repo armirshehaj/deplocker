@@ -31,7 +31,12 @@ class UserRegisterResponse(BaseModel):
             "You will shortly recieve a verification request in your email address..."
         )
     ]
-    email_task_id: uuid.UUID
+
+
+class UnconfirmedEmailChange(BaseModel):
+    identifier: str  # The account's username or current email address
+    password: str
+    email: EmailStr
 
 
 class UserUpdate(BaseModel):

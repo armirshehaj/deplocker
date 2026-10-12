@@ -4,7 +4,6 @@ from app.routers.deployments import router as deployments_router
 from app.routers.healthcheck import router as healtcheck_router
 from app.routers.organizations import router as orgs_router
 from app.routers.projects import router as projects_router
-from app.tasks.router import router as tasks_router
 
 __all__ = [
     "applications_router",
@@ -13,5 +12,4 @@ __all__ = [
     "healtcheck_router",
     "orgs_router",
     "projects_router",
-    "tasks_router",
 ]

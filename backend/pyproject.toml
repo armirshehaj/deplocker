@@ -15,8 +15,8 @@ dependencies = [
     "docker==7.1.0",
     "pwdlib[argon2]==0.3.0",
     "PyJWT==2.15.0",
-    "celery==5.6.2",
     "Jinja2==3.1.6",
+    "email-validator==2.3.0",
     "slowapi==0.1.9",
     "python-json-logger==4.0.0",
     "redis==7.1.1",
@@ -87,7 +87,6 @@ no_implicit_reexport = true
 
 [[tool.mypy.overrides]]
 module = [
-    "celery.*",
     "pwdlib.*",
     "pythonjsonlogger.*",
 ]

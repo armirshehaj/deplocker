@@ -27,12 +27,26 @@ export const RegisterResponse = z.object({
   message: z.literal(
     "Signup request successfully completed! You will shortly recieve a verification request in your email address...",
   ),
-  email_task_id: z.uuid("Invalid UUID format"),
 });
 
 export const ResendConfirmationResponse = z.object({
   message: z.string().min(1),
-  email_task_id: z.uuid("Invalid UUID format"),
+});
+
+// The login's answer for an account awaiting confirmation
+export const ConfirmationPendingError = z.object({
+  detail: z.string().min(1),
+  email: z.email(),
+});
+
+export const EmailChangeRequest = z.object({
+  email: z.email("Please, provide a valid email address."),
+  password: z.string().min(1, "Enter the password you signed up with."),
+});
+
+export const EmailChangeResponse = z.object({
+  message: z.string().min(1),
+  email: z.email(),
 });
 
 export const LoginRequest = z.object({

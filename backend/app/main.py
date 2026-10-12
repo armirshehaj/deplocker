@@ -17,7 +17,6 @@ from app.routers import (
     healtcheck_router,
     orgs_router,
     projects_router,
-    tasks_router,
 )
 
 setup_logging()
@@ -60,4 +59,3 @@ app.include_router(
 app.include_router(auth_router, prefix="/auth", tags=["Authentication router"])
 app.include_router(orgs_router, prefix="/orgs", tags=["Organizations router"])
 app.include_router(healtcheck_router, tags=["Healthcheck endpoint router"])
-app.include_router(tasks_router, prefix="/tasks", tags=["Distributed tasks router"])

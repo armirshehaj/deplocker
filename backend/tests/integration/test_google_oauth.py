@@ -120,6 +120,48 @@ async def test_google_callback_existing_user_does_not_duplicate(
 
 
 @pytest.mark.anyio
+async def test_google_callback_confirms_unconfirmed_account(
+    client: AsyncClient, test_db_session: AsyncSession
+) -> None:
+    """A callback for an email that signed up with a password but never
+    confirmed it should confirm the account, since Google verified the address."""
+
+    await client.post(
+        "/auth/register",
+        json={
+            "username": "oauth_user",
+            "email": GOOGLE_USER["email"],
+            "full_name": GOOGLE_USER["name"],
+            "password": "OAuthUser2026!",
+        },
+    )
+
+    with (
+        patch(
+            "app.routers.auth.google_oauth.fetch_google_access_token",
+            new=AsyncMock(return_value={"access_token": "valid-access-token"}),
+        ),
+        patch(
+            "app.routers.auth.google_oauth.fetch_google_user_info",
+            new=AsyncMock(return_value=GOOGLE_USER),
+        ),
+    ):
+        response = await client.get(
+            "/auth/google/callback",
+            params={"code": "valid-auth-code"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 307
+    db_user = await test_db_session.scalar(
+        select(UserModel).where(UserModel.email == GOOGLE_USER["email"])
+    )
+    assert db_user is not None
+    assert db_user.username == "oauth_user"
+    assert db_user.is_active is True
+
+
+@pytest.mark.anyio
 async def test_google_callback_missing_access_token(client: AsyncClient) -> None:
     """A failed token exchange should send the browser back to the login page
     rather than render an API error body."""

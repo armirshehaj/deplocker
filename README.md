@@ -34,8 +34,8 @@ passkey.
 
 ## Architecture
 
-Six services make up the stack in [docker-compose.yml](docker-compose.yml). In
-production, [docker-compose.prod.yml](docker-compose.prod.yml) puts a seventh,
+Four services make up the stack in [docker-compose.yml](docker-compose.yml). In
+production, [docker-compose.prod.yml](docker-compose.prod.yml) puts a fifth,
 Caddy, in front of them:
 
 ```mermaid
@@ -44,30 +44,23 @@ flowchart LR
     caddy{{"caddy<br/>HTTPS · production"}}
     ui["ui<br/>nginx · React"]
     api["api<br/>FastAPI"]
-    worker["worker<br/>Celery"]
     postgres[("postgres")]
     redis[("redis-stack")]
-    rabbitmq[["rabbitmq"]]
 
     browser --> caddy
     caddy -->|pages| ui
     caddy -->|API calls| api
     api --> postgres
     api --> redis
-    api -->|jobs| rabbitmq
-    rabbitmq -->|jobs| worker
-    worker -->|results| redis
 ```
 
 | Service | Role | Host port |
 | --- | --- | --- |
 | `caddy` | The server's web server, in production only. It holds the certificates for the web app's and the API's domains and hands each request to the right container | `80`, `443` |
 | `api` | The REST API ([FastAPI](https://fastapi.tiangolo.com/)) | `127.0.0.1:8080`, in development only |
-| `worker` | A [Celery](https://docs.celeryq.dev/) worker for background jobs such as confirmation emails, run from the `api` image | none |
 | `ui` | The web app (React, Vite, Tailwind), served by nginx | `8082`, in development only |
 | `postgres` | The main database | `5435` |
-| `redis-stack` | Login sessions and background job results | `6380` |
-| `rabbitmq` | The queue that hands background jobs to the worker | `5672`, admin UI `15672` |
+| `redis-stack` | Login sessions | `6380` |
 
 The backend's inner workings are described in
 [backend/CLAUDE.md](backend/CLAUDE.md), and its database, table by table, in

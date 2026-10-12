@@ -50,6 +50,7 @@ async def get_user_by_identifier(
 async def authenticate_user(
     db_session: AsyncSession, identifier: str, plain_password: str
 ) -> UserModel | None:
+    """Returns the account the credentials belong to, confirmed or not."""
     db_user: UserModel | None = await get_user_by_identifier(db_session, identifier)
 
     if db_user is None:
@@ -57,9 +58,6 @@ async def authenticate_user(
 
     is_password_valid = verify_password(plain_password, db_user.password)
     if not is_password_valid:
-        return None
-
-    if not db_user.is_active:
         return None
 
     return db_user

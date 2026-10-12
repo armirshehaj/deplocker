@@ -147,6 +147,10 @@ async def get_or_create_oauth_user(
         select(UserModel).where(UserModel.email == email)
     )
     if db_user:
+        if not db_user.is_active:
+            # The provider verified the address, which confirms the account
+            db_user.is_active = True
+            await db_session.commit()
         return db_user
 
     username = await _unique_username(db_session, username_hint)

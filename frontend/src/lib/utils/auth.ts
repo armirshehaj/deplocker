@@ -1,5 +1,6 @@
 import * as z from "zod";
 import {
+  ConfirmationPendingError,
   LoginRequest,
   LoginResponse,
   LogoutResponse,
@@ -27,11 +28,19 @@ export async function submitDeplockerLogin(
   const request = new HttpRequest(`${API_URL}/auth/login`, {
     body: formData,
   });
-  const [response, error] = await request.send(LoginResponse);
+  const [response, error, errorBody] = await request.send(LoginResponse);
 
   if (response) {
     setOnLocalStorage("email", response.email);
     navigate("/dashboard/projects");
+  }
+
+  const pending = ConfirmationPendingError.safeParse(errorBody);
+  if (pending.success) {
+    navigate(
+      `/account/pending?email=${encodeURIComponent(pending.data.email)}`,
+    );
+    return;
   }
 
   if (error) {

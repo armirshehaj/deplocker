@@ -15,6 +15,13 @@ export const parameterLessEndpoints: Record<string, RequestParams> = {
   [`${API_URL}/auth/login`]: {
     method: "POST",
   },
+  [`${API_URL}/auth/account/email`]: {
+    method: "POST",
+    public: true,
+    headers: {
+      ...jsonPayloadHeader,
+    },
+  },
   [`${API_URL}/auth/passkeys/login/options`]: {
     method: "POST",
   },
@@ -52,9 +59,6 @@ export const parameterLessEndpoints: Record<string, RequestParams> = {
 };
 
 export const parameteredEndpoints: Record<string, RequestParams> = {
-  [`${API_URL}/tasks/:taskID`]: {
-    method: "GET",
-  },
   [`${API_URL}/auth/check-username?username=:username`]: {
     method: "GET",
     public: true,

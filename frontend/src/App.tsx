@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import { SignupForm } from "./components/auth/SignupForm";
 import { ActivateAccount } from "./components/auth/ActivateAccount";
+import { ConfirmationPending } from "./components/auth/ConfirmationPending";
 import Login from "./components/auth/Login";
 import Dashboard from "./components/dashboard/Dashboard";
 import { AuthContext, AuthProvider } from "./contexts/AuthContext";
@@ -33,6 +34,7 @@ export default function App() {
         />
         <Route path="/register" element={<SignupForm />} />
         <Route path="/account/confirm" element={<ActivateAccount />} />
+        <Route path="/account/pending" element={<ConfirmationPending />} />
 
         {/* Protected pages: a visitor without a session is sent to /login */}
         <Route
