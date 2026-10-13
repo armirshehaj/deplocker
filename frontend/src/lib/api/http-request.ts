@@ -46,6 +46,15 @@ export default class HttpRequest {
 
     try {
       const response = await fetch(this.endpointURL, init);
+
+      const contentType = response.headers.get("content-type");
+      if (!contentType?.includes("application/json")) {
+        const url = this.endpointURL.split("?")[0];
+        throw new Error(
+          `${url} answered HTTP ${response.status} with ${contentType ?? "no content type"} instead of JSON`,
+        );
+      }
+
       const data = await response.json();
 
       if (!response.ok) {
@@ -77,7 +86,8 @@ export default class HttpRequest {
         errorMessage = `An unexpected error ocurred: ${error}`;
       }
 
-      toast.error(errorMessage);
+      // A message already on screen is not shown again
+      toast.error(errorMessage, { toastId: errorMessage });
       return [null, errorMessage];
     }
   }
