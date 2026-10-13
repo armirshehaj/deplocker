@@ -42,4 +42,14 @@ describe("useCheckAuthSession", () => {
     const { result } = renderHook(() => useCheckAuthSession(), { wrapper });
     await waitFor(() => expect(result.current).toBe(false));
   });
+
+  it.each([
+    ["an active", [{ email: "john@example.com" }, null]],
+    ["a failed", [null, "Unauthorized"]],
+  ])("checks the session once for %s session", async (_, answer) => {
+    mockSend.mockResolvedValue(answer);
+    const { result } = renderHook(() => useCheckAuthSession(), { wrapper });
+    await waitFor(() => expect(result.current).not.toBeNull());
+    expect(mockSend).toHaveBeenCalledOnce();
+  });
 });
