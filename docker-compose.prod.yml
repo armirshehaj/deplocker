@@ -31,7 +31,8 @@ services:
 
   api:
     # Runs the code and server command baked into the image
-    volumes: !reset []
+    volumes: !override
+      - api_logs:/app/app/logs  # app.log and its rotated copies, kept across deploys
     command: !reset null
     ports: !reset []
     # Kept out of docker-compose.yml, so `make start-dev` fails as soon as api exits
@@ -44,5 +45,6 @@ services:
     ports: !reset []
 
 volumes:
+  api_logs:
   caddy_data:
   caddy_config:
