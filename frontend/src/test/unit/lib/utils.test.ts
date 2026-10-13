@@ -4,7 +4,7 @@ import {
   setOnLocalStorage,
   removeFromLocalStorage,
   clearLocalStorage,
-} from "@/lib/utils";
+} from "@/lib/utils/local-storage";
 
 describe("localStorage utils", () => {
   beforeEach(() => {

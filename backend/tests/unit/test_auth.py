@@ -7,7 +7,11 @@ from pydantic import ValidationError
 
 from app.core.conf import settings
 from app.schemas.auth import UserRegister
-from app.utils.auth import generate_jwt, get_password_hash, verify_password
+from app.utils.auth.deplocker_auth import (
+    generate_jwt,
+    get_password_hash,
+    verify_password,
+)
 
 
 @pytest.fixture()
@@ -17,7 +21,6 @@ def test_user_register_payload() -> dict[str, str]:
         "email": "armir.shehaj@gmail.com",
         "full_name": "Armir Shehaj",
         "password": "Armir2026!",
-        "role": "admin",
     }
 
 
@@ -59,9 +62,8 @@ def test_generate_jwt() -> None:
     )
 
     assert decoded.get("sub") == "armir.shehaj@gmail.com"
-    assert (
-        type(decoded.get("exp")) is int
-    )  # JWT encodes the "exp" claim into Unix timestamps
+    # JWT encodes "exp" as a Unix timestamp
+    assert type(decoded.get("exp")) is int
 
 
 @pytest.mark.anyio
@@ -85,18 +87,7 @@ def test_malformed_email_on_user_register(
     test_user_register_payload: dict[str, str],
 ) -> None:
     payload = test_user_register_payload
-    payload["email"] = "armir.shehaj@"  # Unsettle the email to a wrong one
-
-    with pytest.raises(ValidationError):
-        UserRegister(**payload)
-
-
-@pytest.mark.anyio
-def test_wrong_role_on_user_register(
-    test_user_register_payload: dict[str, str],
-) -> None:
-    payload = test_user_register_payload
-    payload["role"] = "superuser"  # Unsettle the role to a non-existent one
+    payload["email"] = "armir.shehaj@"  # No domain
 
     with pytest.raises(ValidationError):
         UserRegister(**payload)

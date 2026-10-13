@@ -4,6 +4,8 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from app.utils.text.slug_generator import SluggableName
+
 
 class OrganizationRole(Enum):
     OWNER = "owner"
@@ -12,8 +14,7 @@ class OrganizationRole(Enum):
 
 
 class OrganizationCreate(BaseModel):
-    user_id: int
-    name: str
+    name: SluggableName
 
 
 class OrganizationResponse(BaseModel):
@@ -23,3 +24,9 @@ class OrganizationResponse(BaseModel):
     slug: str
     created_at: datetime
     updated_at: datetime
+
+
+class OrganizationSummary(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str

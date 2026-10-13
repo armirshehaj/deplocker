@@ -4,7 +4,7 @@ type RequestBody = object | FormData;
 
 export interface APICallParams {
   body?: RequestBody;
-  authenticationRequired?: boolean;
+  public?: boolean;
   headers?: HeadersInit;
 }
 

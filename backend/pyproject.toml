@@ -7,30 +7,31 @@ requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "Armir Shehaj", email = "armir.shehaj@gmail.com" }]
 dependencies = [
-    "fastapi[standard]==0.129.0",
-    "pydantic-settings==2.12.0",
+    "fastapi[standard]==0.142.2",
+    "pydantic-settings==2.14.2",
     "SQLAlchemy==2.0.46",
     "alembic==1.18.4",
     "asyncpg==0.31.0",
     "docker==7.1.0",
     "pwdlib[argon2]==0.3.0",
-    "PyJWT==2.11.0",
-    "celery==5.6.2",
+    "PyJWT==2.15.0",
     "Jinja2==3.1.6",
-    "oauthlib==3.3.1",
+    "email-validator==2.3.0",
     "slowapi==0.1.9",
     "python-json-logger==4.0.0",
     "redis==7.1.1",
     "anyascii==0.3.3",
+    "webauthn==2.7.0",
 ]
 
 [dependency-groups]
 dev = [
     "Faker==40.4.0",
     "ruff>=0.9.0",
-    "pytest==9.0.2",
+    "pytest==9.0.3",
     "fakeredis==2.34.1",
     "mypy>=2.1.0",
+    "paracelsus>=0.15.0",
 ]
 
 [tool.ruff]
@@ -61,7 +62,7 @@ ignore = [
 "**/__init__.py" = ["F401"]
 "app/main.py" = ["F401"]
 "tests/conftest.py" = ["F401"]
-"app/models/*.py" = ["F821"]
+"**/app/models/*.py" = ["F821"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
@@ -86,7 +87,6 @@ no_implicit_reexport = true
 
 [[tool.mypy.overrides]]
 module = [
-    "celery.*",
     "pwdlib.*",
     "pythonjsonlogger.*",
 ]

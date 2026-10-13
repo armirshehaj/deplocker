@@ -1,6 +1,6 @@
 import pytest
 
-from app.utils.slug_generator import generate_slug
+from app.utils.text.slug_generator import generate_slug
 
 
 def test_basic_slug() -> None:

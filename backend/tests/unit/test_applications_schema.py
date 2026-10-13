@@ -33,12 +33,10 @@ def test_application_create_defaults(
 def test_application_invalid_port(
     test_application_create_payload: dict[str, Any],
 ) -> None:
-    # Test for negative integer
     test_application_create_payload["port"] = -8000
     with pytest.raises(ValidationError):
         ApplicationCreate(**test_application_create_payload)
 
-    # Test for a non-integer port value
     test_application_create_payload["port"] = "abc"
     with pytest.raises(ValidationError):
         ApplicationCreate(**test_application_create_payload)

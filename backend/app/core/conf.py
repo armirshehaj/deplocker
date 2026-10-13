@@ -1,12 +1,12 @@
 import os
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Postgres DB parameters
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_HOST: str
@@ -14,66 +14,89 @@ class Settings(BaseSettings):
     POSTGRES_DB: str
     TEST_DB: str
 
-    # Frontend URL
-    # Where used, the frontend URL is resolved based on the application's environment (through ENVIRONMENT variable)
-    # Also, both of them are passed hand-in-hand as allowed origins in the CORS configuration.
+    # Picks each URL pair's value and whether cookies require HTTPS
     ENVIRONMENT: Literal["dev", "production"]
+
+    # CORS allows both, whatever the environment
     DEV_FRONTEND_URL: str
     PROD_FRONTEND_URL: str
 
-    # JWT configuration parameters
+    # The API's own external origin. OAuth2 providers redirect back to it, so it
+    # must match the callback URL registered with each of them.
+    DEV_PUBLIC_URL: str = "http://localhost:8080"
+    PROD_PUBLIC_URL: str
+
+    # JWT signing for email confirmation links
     SECRET_KEY: str
     ALGORITHM: str
     ACCESS_TOKEN_EXPIRES_MINUTES: int
 
-    # RabbitMQ configuration parameters
-    RABBITMQ_DEFAULT_USER: str
-    RABBITMQ_DEFAULT_PASS: str
-    RABBITMQ_HOST: str
-    RABBITMQ_PORT: int
-    RABBITMQ_DEFAULT_VHOST: str
-
-    # Redis configuration parameters
     REDIS_HOST: str
     REDIS_PORT: int
     REDIS_PASSWORD: str
 
-    # Email service parameters
+    # The SMTP account that sends confirmation emails
     SMTP_HOST: str
     SMTP_PORT: int
     SENDER_EMAIL_ADDRESS: str
     EMAIL_HOST_PASSWORD: str
 
-    # Google OAuth2 configuration parameters
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: str
     GOOGLE_AUTH_URL: str
     GOOGLE_TOKEN_URL: str
     GOOGLE_USER_INFO_URL: str
 
-    @computed_field
+    GITHUB_CLIENT_ID: str
+    GITHUB_CLIENT_SECRET: str
+    GITHUB_AUTH_URL: str
+    GITHUB_TOKEN_URL: str
+    GITHUB_USER_INFO_URL: str
+    GITHUB_USER_EMAILS_URL: str
+
+    # The Relying Party ID scopes passkeys to a domain: the frontend's host, or a
+    # registrable suffix of it when the frontend lives on a subdomain.
+    WEBAUTHN_RP_NAME: str = "Deplocker"
+    WEBAUTHN_RP_ID: str = ""
+
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def FRONTEND_URL(self) -> str:
-        """Root frontend URL for the active environment (single source of truth)."""
+        """The frontend's URL in the active environment."""
         return (
             self.PROD_FRONTEND_URL
             if self.ENVIRONMENT == "production"
             else self.DEV_FRONTEND_URL
         )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    def GOOGLE_REDIRECT_URI(self) -> str:
-        BASE_URL = (
-            self.PROD_FRONTEND_URL
-            if self.self.ENVIRONMENT == "production"
-            else self.DEV_FRONTEND_URL
+    def PUBLIC_URL(self) -> str:
+        """The API's URL in the active environment."""
+        return (
+            self.PROD_PUBLIC_URL
+            if self.ENVIRONMENT == "production"
+            else self.DEV_PUBLIC_URL
         )
 
-        return f"{BASE_URL}/auth/google/callback"
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def RP_ID(self) -> str:
+        """Relying Party ID, falling back to the frontend host when unset."""
+        return (
+            self.WEBAUTHN_RP_ID or urlparse(self.FRONTEND_URL).hostname or "localhost"
+        )
 
-    # Real environment variables win over the file; the file is a local-dev
-    # convenience and is absent wherever the platform injects secrets directly.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def GOOGLE_REDIRECT_URI(self) -> str:
+        return f"{self.PUBLIC_URL}/auth/google/callback"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def GITHUB_REDIRECT_URI(self) -> str:
+        return f"{self.PUBLIC_URL}/auth/github/callback"
+
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", ".env"), env_file_encoding="utf-8"
     )

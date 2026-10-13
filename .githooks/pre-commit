@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Lint the components touched by the staged files, as CI does
+if ! make lint-ci; then
+    cat >&2 <<'EOF'
+
+pre-commit: linting failed.
+
+  To address formatting issues, use the respective automatic reformatting tools:
+  -> For backend use: make backend-reformat
+  -> For frontend use: make frontend-reformat
+  
+  Carefully review the issues reported by mypy, ESLint, and tsc.
+EOF
+    exit 1
+fi
+
+# A model change needs a migration. When either side is staged, check that the
+# migrations build the schema the models describe, as CI does.
+if git diff --cached --name-only | grep -qE '^backend/(app/models|alembic)/'; then
+    if ! make backend-migrations-local; then
+        cat >&2 <<'EOF'
+
+pre-commit: migrations check failed.
+
+  If alembic check reports new upgrade operations, a model change has no
+  migration yet. Generate one, review it, and stage it:
+  -> docker compose exec api uv run alembic revision --autogenerate -m "<what changed>"
+EOF
+        exit 1
+    fi
+fi

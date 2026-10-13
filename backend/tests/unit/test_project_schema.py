@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from pydantic import ValidationError
 
@@ -8,6 +10,7 @@ def test_project_create_valid() -> None:
     project_create_payload = {
         "name": "Deplocker",
         "description": "Dockerized deployments facility",
+        "organization_id": str(uuid.uuid4()),
         "status": "active",
     }
 
@@ -19,6 +22,13 @@ def test_project_create_valid() -> None:
 
 def test_project_create_missing_description() -> None:
     payload = {"description": "Dockerized deployments facility"}
+
+    with pytest.raises(ValidationError):
+        ProjectCreate(**payload)
+
+
+def test_project_create_missing_organization() -> None:
+    payload = {"name": "Deplocker", "description": "Dockerized deployments facility"}
 
     with pytest.raises(ValidationError):
         ProjectCreate(**payload)

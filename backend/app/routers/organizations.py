@@ -1,8 +1,9 @@
 import logging
+import uuid
+from collections.abc import Sequence
 
-from fastapi import APIRouter, Depends, status
-from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from fastapi import APIRouter, Depends
+from sqlalchemy import Row, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
@@ -11,9 +12,11 @@ from app.schemas.organizations import (
     OrganizationCreate,
     OrganizationResponse,
     OrganizationRole,
+    OrganizationSummary,
 )
-from app.utils.auth import get_current_session
-from app.utils.slug_generator import generate_slug
+from app.utils.auth.shared import get_current_session
+from app.utils.naming.conflicts import commit_unless_name_taken
+from app.utils.text.slug_generator import generate_slug
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -29,17 +32,20 @@ async def create_organization(
     auth_session: dict = Depends(get_current_session),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> OrganizationModel:
+    slug = generate_slug(payload.name)
     new_organization = OrganizationModel(
-        owner_id=payload.user_id, name=payload.name, slug=generate_slug(payload.name)
+        owner_id=auth_session["user_id"], name=payload.name, slug=slug
     )
     db_session.add(new_organization)
-    await db_session.commit()
+    await commit_unless_name_taken(
+        db_session, f"The slug '{slug}' is already taken by another organization!"
+    )
     await db_session.refresh(new_organization)
 
     new_org_member = OrganizationMembersModel(
-        user_id=payload.user_id,
+        user_id=auth_session["user_id"],
         organization_id=new_organization.id,
-        role=OrganizationRole.ADMIN,
+        role=OrganizationRole.OWNER,
     )
     db_session.add(new_org_member)
     await db_session.commit()
@@ -47,26 +53,22 @@ async def create_organization(
     return new_organization
 
 
-@router.get("/{user_id}", summary="Get all organizations a user belongs to")
+@router.get(
+    "",
+    summary="Get all organizations the caller belongs to",
+    response_model=list[OrganizationSummary],
+)
 async def get_user_organizations(
-    user_id: int,
     auth_session: dict = Depends(get_current_session),
     db_session: AsyncSession = Depends(get_db_session),
-) -> JSONResponse:
-    result = await db_session.scalars(
-        select(OrganizationMembersModel.organization_id)
-        .where(OrganizationMembersModel.user_id == user_id)
+) -> Sequence[Row[tuple[uuid.UUID, str, str]]]:
+    result = await db_session.execute(
+        select(OrganizationModel.id, OrganizationModel.name, OrganizationModel.slug)
+        .join(
+            OrganizationMembersModel,
+            OrganizationMembersModel.organization_id == OrganizationModel.id,
+        )
+        .where(OrganizationMembersModel.user_id == auth_session["user_id"])
         .order_by(OrganizationMembersModel.joined_at)
     )
-
-    organization_ids = result.all()
-
-    organization_names_query_result = await db_session.execute(
-        select(OrganizationModel.name).where(OrganizationModel.id.in_(organization_ids))
-    )
-    organization_names = organization_names_query_result.scalars().all()
-
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={"user_id": user_id, "organizations": organization_names},
-    )
+    return result.all()

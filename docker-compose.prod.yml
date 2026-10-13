@@ -1,0 +1,56 @@
+# Production layer over docker-compose.yml, applied by `make deploy-cd`. Caddy
+# is the server's web server and the only service publishing host ports: it owns
+# 80 and 443 and is the way in to the web app and the API.
+#
+#   IMAGE_TAG=<commit SHA> docker compose -f docker-compose.yml \
+#       -f docker-compose.prod.yml --env-file /etc/deplocker/.env \
+#       --profile frontend up -d
+
+services:
+
+  caddy:
+    image: caddy:2.11
+    container_name: deplocker_caddy
+    restart: unless-stopped
+    environment:
+      # Site addresses for caddy/Caddyfile
+      PROD_FRONTEND_URL: ${PROD_FRONTEND_URL:?run compose with --env-file /etc/deplocker/.env}
+      PROD_PUBLIC_URL: ${PROD_PUBLIC_URL:?run compose with --env-file /etc/deplocker/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - caddy_data:/data  # certificates and the ACME account
+      - caddy_config:/config
+    healthcheck:
+      # Probes the admin endpoint that `make deploy-cd` reloads through, so
+      # `up --wait` returns only once it answers
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      start_interval: 1s
+
+  api:
+    # Runs the code and server command baked into the image
+    volumes: !reset []
+    command: !reset null
+    ports: !reset []
+    # Kept out of docker-compose.yml, so `make start-dev` fails as soon as api exits
+    restart: unless-stopped
+
+  postgres:
+    ports: !reset []
+
+  redis-stack:
+    ports: !reset []
+
+  ui:
+    ports: !reset []
+
+volumes:
+  caddy_data:
+  caddy_config:

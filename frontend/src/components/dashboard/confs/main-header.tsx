@@ -1,6 +1,6 @@
 import { DashboardMenu } from "@/schemas/dashboard";
 import { FolderInput, Rocket } from "lucide-react";
-import { InferType } from "yup";
+import * as z from "zod";
 import { ProjectCreateForm } from "../menus/Projects";
 
 export interface MainHeaderProps {
@@ -10,7 +10,7 @@ export interface MainHeaderProps {
   actionButton?: React.ReactNode;
 }
 
-export const menus: Record<InferType<typeof DashboardMenu>, MainHeaderProps> = {
+export const menus: Record<z.infer<typeof DashboardMenu>, MainHeaderProps> = {
   projects: {
     titleIcon: <FolderInput />,
     title: "Projects",

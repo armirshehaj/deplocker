@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import APIClient from "@/lib/api/api-client";
+import HttpRequest from "@/lib/api/http-request";
 import { LoginResponse } from "@/schemas/auth";
-import { clearLocalStorage, getFromLocalStorage, setOnLocalStorage } from "@/lib/utils";
+import {
+  clearLocalStorage,
+  getFromLocalStorage,
+  setOnLocalStorage,
+} from "@/lib/utils/local-storage";
 
 export default function useCheckAuthSession() {
   const [isSessionActive, setIsSessionActive] = useState<boolean | null>(null);
@@ -11,13 +15,12 @@ export default function useCheckAuthSession() {
   useEffect(() => {
     const checkSession = async () => {
       const endpointURL = `${API_URL}/auth/session/check`;
-      const apiClient = new APIClient(endpointURL);
+      const request = new HttpRequest(endpointURL);
 
-      const [response, error] = await apiClient.call(LoginResponse);
+      const [response, error] = await request.send(LoginResponse);
 
       if (response) {
-        if (!getFromLocalStorage("user_id")) {
-          setOnLocalStorage("user_id", String(response.user_id));
+        if (!getFromLocalStorage("email")) {
           setOnLocalStorage("email", response.email);
         }
         setIsSessionActive(true);

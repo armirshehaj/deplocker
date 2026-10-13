@@ -1,5 +1,13 @@
-.claude/
-docs/
+# Only patterns true for every clone belong here. Machine-specific ones go in
+# .git/info/exclude or core.excludesFile. See gitignore(5).
+# Language-specific noise lives in backend/.gitignore and frontend/.gitignore.
+
+# Build artifacts
 .build-dev.stamp
+
+# Scratch scripts
 dev_scripts/
-.vscode/
+
+# Local tooling config
+.claude/settings.local.json
+.claude/CLAUDE.md

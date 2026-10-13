@@ -14,10 +14,6 @@ from .conf import settings
 
 
 class Base(AsyncAttrs, DeclarativeBase):
-    """
-    Base class for SQLAlchemy models
-    """
-
     __abstract__ = True
 
     def to_dict(self) -> dict[str, Any]:

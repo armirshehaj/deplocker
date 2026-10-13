@@ -6,20 +6,19 @@ from pydantic import BaseModel
 
 
 class DeploymentStatus(StrEnum):
-    # Queue/preparation
-    PENDING = "pending"  # Created, waiting to start
+    PENDING = "pending"
 
-    # Active phases
-    CLONING = "cloning"  # Cloning Git repository
-    BUILDING = "building"  # Building Docker image
-    PUSHING = "pushing"  # Pushing image to registry (optional)
-    DEPLOYING = "deploying"  # Starting container
-    HEALTH_CHECKING = "health_checking"  # Waiting for health checks
+    # Pipeline steps, in order
+    CLONING = "cloning"
+    BUILDING = "building"
+    PUSHING = "pushing"  # To an image registry; optional
+    DEPLOYING = "deploying"  # Starting the container
+    HEALTH_CHECKING = "health_checking"
 
     # Terminal states
-    SUCCESS = "success"  # Deployment completed successfully
-    FAILED = "failed"  # Deployment failed
-    CANCELLED = "cancelled"  # User cancelled deployment
+    SUCCESS = "success"
+    FAILED = "failed"
+    CANCELLED = "cancelled"  # By the user
 
 
 class DeploymentBase(BaseModel):

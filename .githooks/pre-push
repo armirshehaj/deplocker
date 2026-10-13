@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Refuse direct pushes to master
+
+# Git sends one line per ref: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _ _ remote_ref _; do
+	if [ "$remote_ref" = "refs/heads/master" ]; then
+		echo "pre-push: master is protected! Create a new dedicated branch, and open a PR." >&2
+		exit 1
+	fi
+done
+
+exit 0

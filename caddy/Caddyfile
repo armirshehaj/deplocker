@@ -1,0 +1,11 @@
+# Serves the web app and the API on their production URLs, set in
+# /etc/deplocker/.env, each from its own container.
+
+{$PROD_FRONTEND_URL} {
+	encode zstd gzip
+	reverse_proxy ui:80
+}
+
+{$PROD_PUBLIC_URL} {
+	reverse_proxy api:8080
+}

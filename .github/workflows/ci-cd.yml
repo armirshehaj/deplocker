@@ -1,0 +1,114 @@
+name: Deplocker CI/CD
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  ci:
+    name: Build & Test
+    runs-on: self-hosted
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Only files under frontend/ or backend/ count; root files trigger neither.
+      # A new branch or an unreachable `before` (force push) runs everything.
+      - name: Detect changed components
+        id: changes
+        env:
+          BEFORE: ${{github.event.before}}
+        run: |
+          declare -A changed=()
+          if files=$(git diff --name-only "$BEFORE" HEAD 2>/dev/null); then
+            echo "Files changed in this push:"
+            sed 's/^/  /' <<< "$files"
+            grep -q '^frontend/' <<< "$files" && changed[frontend]=true
+            grep -q '^backend/' <<< "$files" && changed[backend]=true
+          else
+            echo "No previous commit to compare with (new branch or force push), so everything gets checked."
+            changed[frontend]=true changed[backend]=true
+          fi
+          echo
+          for part in frontend backend; do
+            if [ "${changed[$part]}" ]; then
+              echo "$part=true" >> "$GITHUB_OUTPUT"
+              echo "${part^}: checks will run."
+            else
+              echo "${part^}: no changes, checks skipped."
+            fi
+          done
+
+      - uses: actions/setup-node@v4
+        if: steps.changes.outputs.frontend
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        if: steps.changes.outputs.frontend
+        run: make frontend-install-ci
+
+      - name: Lint & typecheck frontend
+        if: steps.changes.outputs.frontend
+        run: make frontend-lint-ci
+
+      - name: Run frontend tests
+        if: steps.changes.outputs.frontend
+        run: make frontend-test-ci
+
+      - name: Lint & typecheck backend
+        if: steps.changes.outputs.backend
+        run: make backend-lint-ci
+
+      - name: Check backend migrations
+        if: steps.changes.outputs.backend
+        run: make backend-migrations-ci
+
+      - name: Run backend tests
+        if: steps.changes.outputs.backend
+        run: make backend-test-ci
+
+      - name: Cleanup
+        if: always()
+        run: make backend-clean-ci
+
+      - name: Build images
+        run: make build-ci FRONTEND_API_URL=${{vars.PROD_API_URL}} IMAGE_SHA=${{github.sha}}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{github.actor}}
+          password: ${{secrets.GITHUB_TOKEN}}
+
+      - name: Push images
+        run: |
+          make publish-ci \
+            IMAGE_OWNER=${{github.repository_owner}} \
+            IMAGE_SHA=${{github.sha}}
+
+  cd:
+    name: Deploy to production
+    runs-on: self-hosted
+    # Deploys only a commit whose ci job passed
+    needs: ci
+    if: github.ref == 'refs/heads/master'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner is the production host, so ci already built deplocker-api
+      # and deplocker-ui locally, tagged with this commit's SHA; deploy-cd runs
+      # those images. Production secrets are provisioned on the host, never by
+      # this workflow.
+      - name: Deploy
+        run: make deploy-cd IMAGE_SHA=${{github.sha}}

@@ -4,19 +4,21 @@ from enum import Enum
 
 from pydantic import BaseModel, NonNegativeInt
 
+from app.utils.text.slug_generator import SluggableName
+
 
 class AppStatus(Enum):
     CREATED = "created"
     DEPLOYING = "deploying"
     RUNNING = "running"
-    UNHEALTHY = "unhealthy"  # Running, but failing healthchecks
+    UNHEALTHY = "unhealthy"  # Running, but failing health checks
     STOPPED = "stopped"
     FAILED = "failed"
-    DELETING = "deleting"  # To indicate an in-progress deletion
+    DELETING = "deleting"
 
 
 class ApplicationBase(BaseModel):
-    name: str
+    name: SluggableName
     description: str
     git_url: str
     branch: str = "main"
@@ -32,7 +34,7 @@ class ApplicationCreate(ApplicationBase):
 
 
 class ApplicationUpdate(BaseModel):
-    name: str | None = None
+    name: SluggableName | None = None
     description: str | None = None
     git_url: str | None = None
     branch: str | None = None

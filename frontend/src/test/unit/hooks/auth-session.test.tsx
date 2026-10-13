@@ -3,11 +3,11 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import React from "react";
 
-const mockCall = vi.hoisted(() => vi.fn());
+const mockSend = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/api/api-client", () => ({
-  default: class MockAPIClient {
-    call = mockCall;
+vi.mock("@/lib/api/http-request", () => ({
+  default: class MockHttpRequest {
+    send = mockSend;
   },
 }));
 
@@ -23,13 +23,13 @@ describe("useCheckAuthSession", () => {
   });
 
   it("returns null before the API responds", () => {
-    mockCall.mockReturnValue(new Promise(() => {}));
+    mockSend.mockReturnValue(new Promise(() => {}));
     const { result } = renderHook(() => useCheckAuthSession(), { wrapper });
     expect(result.current).toBeNull();
   });
 
   it("returns true when session is active", async () => {
-    mockCall.mockResolvedValue([
+    mockSend.mockResolvedValue([
       { user_id: 1, username: "john", role: "user", created_at: "2024-01-01" },
       null,
     ]);
@@ -38,7 +38,7 @@ describe("useCheckAuthSession", () => {
   });
 
   it("returns false when session check fails", async () => {
-    mockCall.mockResolvedValue([null, "Unauthorized"]);
+    mockSend.mockResolvedValue([null, "Unauthorized"]);
     const { result } = renderHook(() => useCheckAuthSession(), { wrapper });
     await waitFor(() => expect(result.current).toBe(false));
   });

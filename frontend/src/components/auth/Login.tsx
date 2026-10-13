@@ -5,17 +5,17 @@ import {
   FieldGroup,
   FieldLabel,
 } from "../shadcn/field";
-import { InferType } from "yup";
-import { LoginRequest, LoginResponse } from "@/schemas/auth";
-import { yupResolver } from "@hookform/resolvers/yup";
+import * as z from "zod";
+import { LoginRequest } from "@/schemas/auth";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Input } from "../shadcn/input";
 import { Button } from "../shadcn/button";
-import GoogleIcon from "@/components/auth/GoogleIcon"
-import APIClient from "@/lib/api/api-client";
-import { toast } from "react-toastify";
+import GoogleIcon from "@/lib/icons/GoogleIcon";
+import GithubIcon from "@/lib/icons/GithubIcon";
+import { FingerprintIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { setOnLocalStorage } from "@/lib/utils";
 import useCheckAuthSession from "@/lib/hooks/auth-session";
+import { submitDeplockerLogin, submitPasskeyLogin } from "@/lib/utils/auth";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -24,34 +24,23 @@ export default function Login() {
   if (isSessionActive) {
     navigate("/dashboard/projects");
   }
-  const form = useForm<InferType<typeof LoginRequest>>({
-    resolver: yupResolver(LoginRequest),
+  const form = useForm<z.infer<typeof LoginRequest>>({
+    resolver: zodResolver(LoginRequest),
     defaultValues: {
       username: "",
       password: "",
     },
   });
 
-  const onSubmit = async (data: InferType<typeof LoginRequest>) => {
-    const formData = new FormData();
-    formData.append("username", data.username);
-    formData.append("password", data.password);
-
-    const apiClient = new APIClient(`${API_URL}/auth/login`, {
-      body: formData,
-    });
-    const [response, error] = await apiClient.call(LoginResponse);
-
-    if (response) {
-      setOnLocalStorage("user_id", String(response.user_id));
-      setOnLocalStorage("email", response.email);
-      navigate("/dashboard/projects");
-    }
-
-    if (error) {
-      toast.error(error);
-    }
+  const onDeplockerAuthSubmit = async (data: z.infer<typeof LoginRequest>) =>
+    submitDeplockerLogin(data, navigate);
+  const onGoogleAuthSubmit = () => {
+    window.location.replace(`${API_URL}/auth/google/login`);
   };
+  const onGithubAuthSubmit = () => {
+    window.location.replace(`${API_URL}/auth/github/login`);
+  };
+  const onPasskeyAuthSubmit = async () => submitPasskeyLogin(navigate);
 
   return (
     <div className="flex flex-col h-screen items-center gap-12">
@@ -61,7 +50,7 @@ export default function Login() {
       </div>
       <form
         className="flex flex-col gap-8 w-full px-8 md:w-1/4 md:p-0"
-        onSubmit={form.handleSubmit(onSubmit)}
+        onSubmit={form.handleSubmit(onDeplockerAuthSubmit)}
       >
         <FieldGroup>
           <Controller
@@ -109,12 +98,28 @@ export default function Login() {
             type="button"
             variant="outline"
             className="cursor-pointer"
-            onClick={()=> window.location.replace(`${API_URL}/auth/google`)}
+            onClick={onGoogleAuthSubmit}
           >
             <GoogleIcon /> Sign in with Google
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="cursor-pointer"
+            onClick={onGithubAuthSubmit}
+          >
+            <GithubIcon /> Sign in with Github
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="cursor-pointer"
+            onClick={onPasskeyAuthSubmit}
+          >
+            <FingerprintIcon /> Sign in with Passkey
+          </Button>
 
-          <div className="flex justify-center">
+          <div className="flex justify-center mb-12">
             <p>
               <>New to Deplocker? </>
               <a href="/register" className="text-blue-500 hover:underline">

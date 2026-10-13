@@ -15,9 +15,9 @@ class OrganizationModel(Base):
     owner_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False, index=True
     )
-    name: Mapped[str] = mapped_column(
-        String(255), nullable=False, unique=True, index=True
-    )
+    # The name is a display label organizations may share; the slug is the
+    # organization's handle, unique across all of them.
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(
         String(100), nullable=False, unique=True, index=True
     )
@@ -32,12 +32,15 @@ class OrganizationModel(Base):
     members: Mapped[list["UserModel"]] = relationship(  # type: ignore[name-defined]
         secondary="organization_members", back_populates="organizations", viewonly=True
     )
+    projects: Mapped[list["ProjectModel"]] = relationship(  # type: ignore[name-defined]
+        back_populates="organization", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"Organization({self.id}, {self.name})"
 
 
-# Junction table for M2M relationship between User and Organization models
+# Joins users and organizations, many to many, with each member's role
 class OrganizationMembersModel(Base):
     __tablename__ = "organization_members"
 

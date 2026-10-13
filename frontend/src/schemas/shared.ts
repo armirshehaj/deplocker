@@ -1,5 +1,5 @@
-import * as yup from "yup";
+import * as z from "zod";
 
-export const SuccessReponse = yup.object().shape({
-  message: yup.string().required(),
+export const SuccessReponse = z.object({
+  message: z.string().min(1),
 });

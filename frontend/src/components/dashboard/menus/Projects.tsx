@@ -11,24 +11,24 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import { ProjectCreateRequest } from "@/schemas/dashboard";
-import { yupResolver } from "@hookform/resolvers/yup";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, Plus } from "lucide-react";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { InferType } from "yup";
+import * as z from "zod";
 
 export function ProjectCreateForm() {
   const [creatingProject, setCreatingProject] = useState<boolean>(false);
 
-  const form = useForm<InferType<typeof ProjectCreateRequest>>({
-    resolver: yupResolver(ProjectCreateRequest),
+  const form = useForm<z.infer<typeof ProjectCreateRequest>>({
+    resolver: zodResolver(ProjectCreateRequest),
     defaultValues: {
       name: "",
       description: "",
     },
   });
 
-  const onSubmit = async (data: InferType<typeof ProjectCreateRequest>) => {
+  const onSubmit = async (data: z.infer<typeof ProjectCreateRequest>) => {
     setCreatingProject(true);
     console.log(data);
     const apiCall = new Promise((resolve) => {
@@ -42,14 +42,14 @@ export function ProjectCreateForm() {
       console.log(r);
       setCreatingProject(false);
     });
-    // const apiClient = new APIClient(`${API_URL}/projects/create`, {
+    // const request = new HttpRequest(`${API_URL}/projects/create`, {
     //     body: {
     //         name: data.name,
     //         descriptiom: data.description
     //     }
     // })
 
-    // const [response, error] = await apiClient.call(ProjectCreateResponse)
+    // const [response, error] = await request.send(ProjectCreateResponse)
 
     // if (response) {
     //     toast.success(`Project '${response.name}' was successfully created!`)

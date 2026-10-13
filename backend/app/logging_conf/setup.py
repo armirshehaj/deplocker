@@ -30,10 +30,8 @@ def setup_logging() -> logging.Logger:
     root_logger.addHandler(stream_handler)
     root_logger.addHandler(file_handler)
 
-    # watchfiles (uvicorn --reload) logs "N changes detected" at INFO. Our file
-    # handler writes into app/logs/, a directory the reloader watches, so each such
-    # line is itself a change — an infinite detect -> log -> detect feedback loop.
-    # Raising its level to WARNING breaks that cycle. No-op in production (no --reload).
+    # Under uvicorn --reload, watchfiles logs each change it detects at INFO, those
+    # in app/logs/ included, so every such line would trigger another
     logging.getLogger("watchfiles").setLevel(logging.WARNING)
 
     return root_logger

@@ -1,14 +1,16 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
+# A user's platform-wide role; their role in an organization is an OrganizationRole
 class UserRole(Enum):
-    ADMIN = "admin"  # dedicated for platform-level operators (owners or administrators)
-    USER = "user"  # the majority of users (who merely use the platform for their needs)
+    OWNER = "owner"  # Operates the platform
+    ADMIN = "admin"  # Manages organizations
+    USER = "user"
 
 
 class UserBase(BaseModel):
@@ -20,7 +22,6 @@ class UserRegister(BaseModel):
     email: EmailStr
     full_name: str
     password: str
-    role: UserRole
 
 
 class UserRegisterResponse(BaseModel):
@@ -30,7 +31,12 @@ class UserRegisterResponse(BaseModel):
             "You will shortly recieve a verification request in your email address..."
         )
     ]
-    email_task_id: uuid.UUID
+
+
+class UnconfirmedEmailChange(BaseModel):
+    identifier: str  # The account's username or current email address
+    password: str
+    email: EmailStr
 
 
 class UserUpdate(BaseModel):
@@ -55,3 +61,25 @@ class SessionData(BaseModel):
     email: EmailStr
     role: UserRole
     created_at: datetime
+
+
+class PasskeyRegistration(BaseModel):
+    """The credential `navigator.credentials.create()` produced, plus the label
+    the user gives it. The credential is passed through to the WebAuthn library,
+    which owns its shape."""
+
+    name: str = Field(min_length=1, max_length=255)
+    credential: dict[str, Any]
+
+
+class PasskeyAuthentication(BaseModel):
+    credential: dict[str, Any]
+
+
+class PasskeyResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    created_at: datetime
+    last_used_at: datetime | None
+
+    model_config = ConfigDict(from_attributes=True)

@@ -1,22 +1,18 @@
-import * as yup from "yup";
+import * as z from "zod";
 
-export const DashboardMenu = yup
-  .string()
-  .oneOf(["projects", "deployments"])
-  .required();
+export const DashboardMenu = z.enum(["projects", "deployments"]);
 
-export const ProjectCreateRequest = yup.object().shape({
-  name: yup.string().required(),
-  description: yup.string().required(),
+export const ProjectCreateRequest = z.object({
+  name: z.string().min(1),
+  description: z.string().min(1),
 });
 
-export const ProjectCreateResponse = yup
-  .object()
-  .shape({
-    id: yup.string().uuid().required(),
-    slug: yup.string().required(),
-    created_at: yup.string().datetime().required(),
-    updated_at: yup.string().datetime().required(),
-    status: yup.string().oneOf(["created"]).required(),
+export const ProjectCreateResponse = z
+  .object({
+    id: z.uuid(),
+    slug: z.string().min(1),
+    created_at: z.iso.datetime(),
+    updated_at: z.iso.datetime(),
+    status: z.literal("created"),
   })
-  .concat(ProjectCreateRequest);
+  .extend(ProjectCreateRequest.shape);

@@ -4,6 +4,8 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from app.utils.text.slug_generator import SluggableName
+
 
 class ProjectStatus(Enum):
     CREATED = "created"
@@ -20,13 +22,17 @@ class ProjectBase(BaseModel):
     status: ProjectStatus = ProjectStatus.ACTIVE
 
 
-class ProjectCreate(BaseModel):
-    name: str
+class ProjectFields(BaseModel):
+    name: SluggableName
     description: str
 
 
+class ProjectCreate(ProjectFields):
+    organization_id: uuid.UUID
+
+
 class ProjectUpdate(BaseModel):
-    name: str | None = None
+    name: SluggableName | None = None
     description: str | None = None
     status: ProjectStatus | None = None
 

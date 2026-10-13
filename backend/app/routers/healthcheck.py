@@ -25,7 +25,7 @@ async def healthcheck(
         overall_ok = False
 
     try:
-        await redis.ping()
+        await redis.client.ping()  # type: ignore[misc]
         checks["cache"] = "ok"
 
     except Exception as e:

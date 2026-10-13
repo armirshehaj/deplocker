@@ -1,6 +1,9 @@
-import * as yup from "yup";
+import * as z from "zod";
 
-export const UserOrgs = yup.object().shape({
-  user_id: yup.number().integer(),
-  organizations: yup.array().of(yup.string()),
+export const OrganizationSummary = z.object({
+  id: z.uuid(),
+  name: z.string().min(1),
+  slug: z.string().min(1),
 });
+
+export const OrganizationSummaries = z.array(OrganizationSummary);
