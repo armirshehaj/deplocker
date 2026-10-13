@@ -31,7 +31,7 @@ services:
       DEV_FRONTEND_URL: http://localhost:5173
       PROD_FRONTEND_URL: https://deplocker.armir.dev
       DEV_PUBLIC_URL: http://localhost:8080
-      PROD_PUBLIC_URL: https://api.deplocker.armir.dev
+      PROD_PUBLIC_URL: https://deplocker.armir.dev/api
 
       # JWT — throwaway value; only email-confirmation links are signed with it.
       SECRET_KEY: 379afe51b95194f76028340e1ab89cc309cd52e9a1d018f986bc3e857257471d

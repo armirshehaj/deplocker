@@ -15,26 +15,28 @@ export default ({ mode }: { mode: string }) => {
       },
     },
     define: {
-      API_URL: JSON.stringify(env.API_URL),
+      // The web app reaches the API under /api on its own address
+      API_URL: JSON.stringify("/api"),
     },
-    // WebAuthn needs a real https origin on a real domain. The API is proxied
-    // rather than called directly so page and API share one origin: the session
-    // and challenge cookies are SameSite=strict and lvh.me -> localhost is cross-site.
-    server: env.DEV_HTTPS
-      ? {
-          host: "lvh.me",
-          allowedHosts: ["lvh.me"],
-          https: {
-            key: fs.readFileSync(path.resolve(__dirname, "lvh.me-key.pem")),
-            cert: fs.readFileSync(path.resolve(__dirname, "lvh.me.pem")),
-          },
-          proxy: {
-            "/api": {
-              target: "http://localhost:8080",
-              rewrite: (p) => p.replace(/^\/api/, ""),
+    server: {
+      // Hands /api to the API without the prefix, as Caddy does in containers
+      proxy: {
+        "/api": {
+          target: "http://localhost:8080",
+          rewrite: (p) => p.replace(/^\/api/, ""),
+        },
+      },
+      // WebAuthn needs a real https origin on a real domain
+      ...(env.DEV_HTTPS
+        ? {
+            host: "lvh.me",
+            allowedHosts: ["lvh.me"],
+            https: {
+              key: fs.readFileSync(path.resolve(__dirname, "lvh.me-key.pem")),
+              cert: fs.readFileSync(path.resolve(__dirname, "lvh.me.pem")),
             },
-          },
-        }
-      : undefined,
+          }
+        : {}),
+    },
   });
 };

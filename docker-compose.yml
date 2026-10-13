@@ -1,9 +1,10 @@
-# Development stack for the whole project. The `ui` service sits behind a
-# profile, so a bare `docker compose up` brings up the backend only. In
-# production, docker-compose.prod.yml layers Caddy over it.
+# Development stack for the whole project. The `ui` and `caddy` services sit
+# behind a profile, so a bare `docker compose up` brings up the backend only. In
+# production, docker-compose.prod.yml puts Caddy on the production domain, over
+# HTTPS.
 #
 #   docker compose up                        # backend
-#   docker compose --profile frontend up -d  # backend + ui
+#   docker compose --profile frontend up -d  # backend + ui + caddy
 name: deplocker
 
 services:
@@ -17,8 +18,8 @@ services:
     pull_policy: never
     env_file: /etc/deplocker/.env
     environment:
-      # Frontend origin used by the backend for CORS allow_origins and email
-      # confirmation links. Pass-through form (no value): forwarded only when set
+      # Frontend origin used by the backend for email confirmation links and
+      # passkey checks. Pass-through form (no value): forwarded only when set
       # on the host, so `make start-dev` can override it to the Vite dev server
       # (http://localhost:5173). On a bare `up` the key is not injected and the
       # value from the env_file above stays in effect.
@@ -27,8 +28,7 @@ services:
       - ./backend:/app
       - /app/.venv   # keep the image's venv; don't let the bind mount above hide it
     ports:
-      # The frontend's API address: the Vite proxy and the ui bundle call
-      # localhost:8080
+      # Where the Vite dev server passes /api
       - "127.0.0.1:8080:8080"
     # Reloads on every change to the bind-mounted source
     command: ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--host", "0.0.0.0",
@@ -87,22 +87,29 @@ services:
       retries: 5
       start_period: 15s
 
-  # Frontend service
+  # Frontend services, not started by a bare `docker compose up`; enable with
+  # --profile frontend
   ui:
-    profiles: ["frontend"]   # not started by a bare `docker compose up`; enable with --profile frontend
-    build:
-      context: ./frontend
-      args:
-        # Baked into the bundle at build time by Vite
-        # This way, the frontend can be served as static files by any web server, without needing a backend to proxy API requests.
-        API_URL: http://localhost:8080
+    profiles: ["frontend"]
+    build: ./frontend
     pull_policy: never
     image: deplocker-ui:${IMAGE_TAG:-latest}
     container_name: deplocker-ui
-    ports:
-      # The production build of the web app, at localhost:8082 (`make start-prod`)
-      - "8082:80"
     restart: always
+
+  caddy:
+    profiles: ["frontend"]
+    image: caddy:2.11
+    container_name: deplocker_caddy
+    environment:
+      # Site address for caddy/Caddyfile
+      SITE_ADDRESS: ":8082"
+    ports:
+      # The production build of the web app and the API, at localhost:8082
+      # (`make start-prod`)
+      - "8082:8082"
+    volumes:
+      - ./caddy:/etc/caddy:ro
 
 volumes:
   pgdata:

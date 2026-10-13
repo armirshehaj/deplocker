@@ -59,7 +59,7 @@ jobs:
         run: make backend-clean-ci
 
       - name: Build images
-        run: make build-ci FRONTEND_API_URL=${{vars.PROD_API_URL}} IMAGE_SHA=${{github.sha}}
+        run: make build-ci IMAGE_SHA=${{github.sha}}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3

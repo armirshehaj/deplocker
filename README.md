@@ -34,14 +34,15 @@ passkey.
 
 ## Architecture
 
-Four services make up the stack in [docker-compose.yml](docker-compose.yml). In
-production, [docker-compose.prod.yml](docker-compose.prod.yml) puts a fifth,
-Caddy, in front of them:
+Five services make up the stack in [docker-compose.yml](docker-compose.yml).
+Caddy is the way in: it serves the web app and the API at one address, the API
+under `/api`. In production, [docker-compose.prod.yml](docker-compose.prod.yml)
+puts it on the production domain, over HTTPS:
 
 ```mermaid
 flowchart LR
     browser(["Browser"])
-    caddy{{"caddy<br/>HTTPS · production"}}
+    caddy{{"caddy<br/>HTTPS in production"}}
     ui["ui<br/>nginx · React"]
     api["api<br/>FastAPI"]
     postgres[("postgres")]
@@ -49,16 +50,16 @@ flowchart LR
 
     browser --> caddy
     caddy -->|pages| ui
-    caddy -->|API calls| api
+    caddy -->|API calls, under /api| api
     api --> postgres
     api --> redis
 ```
 
 | Service | Role | Host port |
 | --- | --- | --- |
-| `caddy` | The server's web server, in production only. It holds the certificates for the web app's and the API's domains and hands each request to the right container | `80`, `443` |
+| `caddy` | Hands each request to the right container: those under `/api` to `api`, the rest to `ui`. In production it is the server's web server and holds the domain's certificate | `8082` in development; `80`, `443` in production |
 | `api` | The REST API ([FastAPI](https://fastapi.tiangolo.com/)) | `127.0.0.1:8080`, in development only |
-| `ui` | The web app (React, Vite, Tailwind), served by nginx | `8082`, in development only |
+| `ui` | The web app (React, Vite, Tailwind), served by nginx | None; reached through `caddy` |
 | `postgres` | The main database | `5435`, in development only |
 | `redis-stack` | Login sessions | `6380`, in development only |
 
@@ -70,12 +71,12 @@ The backend's inner workings are described in
 
 Like Dokploy with Traefik, Deplocker brings its own web server: deploying the
 stack hands Caddy ports 80 and 443, and with them every request that reaches
-the server. Today Caddy serves two sites, the web app and the API. It was
-chosen for what the server will carry next. Every application on Deplocker has
-a domain of its own, and that domain alone decides which application a request
-is for. The web server in front must keep a valid certificate for every one of
-those domains, and pick up a new route the moment a deployment needs it,
-without a restart.
+the server. Today Caddy serves one site: the web app, with the API under
+`/api`. It was chosen for what the server will carry next. Every application on
+Deplocker has a domain of its own, and that domain alone decides which
+application a request is for. The web server in front must keep a valid
+certificate for every one of those domains, and pick up a new route the moment
+a deployment needs it, without a restart.
 
 - **HTTPS takes no setup.** Caddy obtains a certificate for every domain it
   serves, renews it ahead of expiry and redirects plain HTTP to HTTPS. There is
@@ -88,7 +89,7 @@ without a restart.
   obtains a certificate during the first visit to a domain, after asking an
   endpoint whether that domain may have one. For Deplocker, the answer is
   whether an application claims it.
-- **Its configuration stays short.** Both sites fit in a dozen lines of
+- **Its configuration stays short.** The whole site fits in a dozen lines of
   [caddy/Caddyfile](caddy/Caddyfile).
 
 The two usual alternatives fall short on the second point:
@@ -227,14 +228,10 @@ failing the job otherwise. Last, it reloads Caddy with the commit's Caddyfile,
 which Caddy applies without a restart.
 
 No application secret passes through the workflow: the server's configuration
-lives in `/etc/deplocker/.env`, written by hand. Its `PROD_FRONTEND_URL` and
-`PROD_PUBLIC_URL` are also the addresses Caddy serves, so both domains need DNS
-records pointing at the server, and no other program on it may hold ports 80
-and 443. GitHub needs a single repository variable:
-
-| Variable | Purpose |
-| --- | --- |
-| `PROD_API_URL` | The production API URL, baked into the web app's bundle |
+lives in `/etc/deplocker/.env`, written by hand. Its `PROD_FRONTEND_URL` is also
+the address Caddy serves, so its domain needs a DNS record pointing at the
+server, and no other program on it may hold ports 80 and 443. `PROD_PUBLIC_URL`,
+the API's address, is that same URL followed by `/api`.
 
 ---
 

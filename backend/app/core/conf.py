@@ -17,12 +17,11 @@ class Settings(BaseSettings):
     # Picks each URL pair's value and whether cookies require HTTPS
     ENVIRONMENT: Literal["dev", "production"]
 
-    # CORS allows both, whatever the environment
     DEV_FRONTEND_URL: str
     PROD_FRONTEND_URL: str
 
-    # The API's own external origin. OAuth2 providers redirect back to it, so it
-    # must match the callback URL registered with each of them.
+    # The API's own external address. OAuth2 providers redirect back to it, so
+    # it must match the callback URL registered with each of them.
     DEV_PUBLIC_URL: str = "http://localhost:8080"
     PROD_PUBLIC_URL: str
 
