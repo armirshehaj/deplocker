@@ -17,32 +17,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Only files under frontend/ or backend/ count; root files trigger neither.
-      # A new branch or an unreachable `before` (force push) runs everything.
       - name: Detect changed components
         id: changes
         env:
           BEFORE: ${{github.event.before}}
-        run: |
-          declare -A changed=()
-          if files=$(git diff --name-only "$BEFORE" HEAD 2>/dev/null); then
-            echo "Files changed in this push:"
-            sed 's/^/  /' <<< "$files"
-            grep -q '^frontend/' <<< "$files" && changed[frontend]=true
-            grep -q '^backend/' <<< "$files" && changed[backend]=true
-          else
-            echo "No previous commit to compare with (new branch or force push), so everything gets checked."
-            changed[frontend]=true changed[backend]=true
-          fi
-          echo
-          for part in frontend backend; do
-            if [ "${changed[$part]}" ]; then
-              echo "$part=true" >> "$GITHUB_OUTPUT"
-              echo "${part^}: checks will run."
-            else
-              echo "${part^}: no changes, checks skipped."
-            fi
-          done
+        run: .github/scripts/detect-changes.sh "$BEFORE"
 
       - uses: actions/setup-node@v4
         if: steps.changes.outputs.frontend
