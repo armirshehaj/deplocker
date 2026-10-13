@@ -9,19 +9,14 @@
 services:
 
   caddy:
-    image: caddy:2.11
-    container_name: deplocker_caddy
     restart: unless-stopped
     environment:
-      # Site addresses for caddy/Caddyfile
-      PROD_FRONTEND_URL: ${PROD_FRONTEND_URL:?run compose with --env-file /etc/deplocker/.env}
-      PROD_PUBLIC_URL: ${PROD_PUBLIC_URL:?run compose with --env-file /etc/deplocker/.env}
-    ports:
+      SITE_ADDRESS: ${PROD_FRONTEND_URL:?run compose with --env-file /etc/deplocker/.env}
+    ports: !override
       - "80:80"
       - "443:443"
       - "443:443/udp"  # HTTP/3
     volumes:
-      - ./caddy:/etc/caddy:ro
       - caddy_data:/data  # certificates and the ACME account
       - caddy_config:/config
     healthcheck:
@@ -46,9 +41,6 @@ services:
     ports: !reset []
 
   redis-stack:
-    ports: !reset []
-
-  ui:
     ports: !reset []
 
 volumes:

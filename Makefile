@@ -49,10 +49,6 @@ IMAGE_SHA         ?=
 API_IMAGE         ?= deplocker-api
 UI_IMAGE          ?= deplocker-ui
 
-# Vite bakes this into the bundle at build time, so a published ui image is
-# pinned to one environment and CI must pass the production URL.
-FRONTEND_API_URL  ?=
-
 # GHCR rejects uppercase path segments, but the owner keeps the account casing.
 REGISTRY_NS        = $(REGISTRY)/$(shell echo '$(IMAGE_OWNER)' | tr '[:upper:]' '[:lower:]')
 
@@ -216,14 +212,10 @@ frontend-test-ci: $(FRONTEND_MODULES)
 	cd $(FRONTEND) && \
 	npm run test
 
-## Build the shippable image. The dev stack bakes a localhost API_URL, so that
-## image is never publishable; FRONTEND_API_URL has to be the production one.
+## Build the shippable image
 frontend-build-ci:
 	$(require_image_sha)
-	@test -n "$(FRONTEND_API_URL)" || { echo "FRONTEND_API_URL is required"; exit 1; }
-	$(D) build --target runtime \
-		--build-arg API_URL=$(FRONTEND_API_URL) \
-		-t $(UI_IMAGE):$(IMAGE_SHA) $(FRONTEND)
+	$(D) build --target runtime -t $(UI_IMAGE):$(IMAGE_SHA) $(FRONTEND)
 
 ## Tag and push the built image, then drop the registry tags
 frontend-publish-ci:
@@ -247,8 +239,8 @@ $(BUILD_DEV_STAMP): $(COMPOSE_DEV_FILE) $(BACKEND)/Dockerfile $(BACKEND)/.docker
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend build
 	@touch $(BUILD_DEV_STAMP)
 
-## Tear the stack down, ui included, and remove its images, so the next start
-## rebuilds them
+## Tear the stack down, ui and Caddy included, and remove its images, so the
+## next start rebuilds them
 clean-dev:
 	@rm -f $(BUILD_DEV_STAMP)
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend down --rmi all
@@ -273,24 +265,24 @@ endef
 ## foreground, which reloads the page on every edit
 start-dev: $(BUILD_DEV_STAMP)
 	$(call start_dev_backend,http://localhost:5173)
-	cd frontend && API_URL='http://localhost:8080' npm run dev
+	cd frontend && npm run dev
 
 ## Same stack, served over TLS on the lvh.me test domain (mkcert certificates in
 ## ./frontend), so the browser runs a real passkey ceremony against RP ID lvh.me.
 start-dev-https: $(BUILD_DEV_STAMP)
 	$(call start_dev_backend,https://lvh.me:5173)
-	cd frontend && DEV_HTTPS=1 API_URL='https://lvh.me:5173/api' npm run dev
+	cd frontend && DEV_HTTPS=1 npm run dev
 
 stop-dev:
 	$(DC) -f $(COMPOSE_DEV_FILE) down
 
-## Build if needed, then start api and ui detached
+## Build if needed, then start the stack detached, ui and Caddy included
 start-prod: $(BUILD_DEV_STAMP)
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend up -d
 
 restart-dev: stop-dev start-dev
 
-## Stop the full stack, ui included
+## Stop the full stack, ui and Caddy included
 stop-prod:
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend down
 
@@ -317,11 +309,9 @@ publish-ci: backend-publish-ci frontend-publish-ci
 
 ## Reconcile the running stack with the images this run just built.
 ##
-## Deliberately not `start-prod`: that depends on $(BUILD_DEV_STAMP), which
-## would rebuild `ui` with the dev stack's localhost API_URL and overwrite the
-## image built with FRONTEND_API_URL. `api` and `ui` are
-## `pull_policy: never`, so this runs the local images `ci` built from
-## IMAGE_SHA and never reaches the registry.
+## Deliberately not `start-prod`, which runs the development stack on the images
+## tagged `latest`. `api` and `ui` are `pull_policy: never`, so this runs the
+## local images `ci` built from IMAGE_SHA and never reaches the registry.
 ##
 ## --wait blocks until api reports healthy and fails the job if it does not.
 ## `up` leaves an unchanged caddy container running, so the reload applies the

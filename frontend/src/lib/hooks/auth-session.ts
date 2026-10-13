@@ -33,9 +33,10 @@ export default function useCheckAuthSession() {
     };
 
     checkSession();
-    // `navigate` is stable across renders and intentionally excluded.
+    // Checks once, on mount; `navigate` is stable across renders and
+    // intentionally excluded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSessionActive]);
+  }, []);
 
   return isSessionActive;
 }

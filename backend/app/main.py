@@ -3,9 +3,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
-from app.core import settings
 from app.core.cache import redis
 from app.core.migrations import ensure_schema_is_current
 from app.logging_conf.setup import setup_logging
@@ -40,13 +38,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(LoggingMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings.DEV_FRONTEND_URL, settings.PROD_FRONTEND_URL],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 app.include_router(projects_router, prefix="/projects", tags=["Projects router"])

@@ -1,11 +1,14 @@
-# Serves the web app and the API on their production URLs, set in
-# /etc/deplocker/.env, each from its own container.
+# Serves the web app and the API at one address, the API under /api.
+# The API sees paths without that prefix: /api/health reaches it as /health.
+# SITE_ADDRESS is the production URL on the server, and :8082 for
+# `make start-prod`.
 
-{$PROD_FRONTEND_URL} {
-	encode zstd gzip
-	reverse_proxy ui:80
-}
-
-{$PROD_PUBLIC_URL} {
-	reverse_proxy api:8080
+{$SITE_ADDRESS} {
+	handle_path /api/* {
+		reverse_proxy api:8080
+	}
+	handle {
+		encode zstd gzip
+		reverse_proxy ui:80
+	}
 }
