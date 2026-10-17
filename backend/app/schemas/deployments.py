@@ -27,6 +27,7 @@ class DeploymentBase(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     commit_hash: str | None = None
+    commit_subject: str | None = None
 
 
 class DeploymentCreate(BaseModel):
