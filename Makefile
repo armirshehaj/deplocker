@@ -150,9 +150,10 @@ backend-clean-ci:
 
 ## Build the shippable image from the production stage, which installs without
 ## dev dependencies and starts uvicorn directly (no --reload, no bind mount).
+## --pull builds on the newest base image, not one cached by an earlier build.
 backend-build-ci:
 	$(require_image_sha)
-	$(D) build --target production -t $(API_IMAGE):$(IMAGE_SHA) $(BACKEND)
+	$(D) build --pull --target production -t $(API_IMAGE):$(IMAGE_SHA) $(BACKEND)
 
 ## Tag and push the built image, then drop the registry tags so only the local
 ## `:$(IMAGE_SHA)` is left behind on the runner, for deploy-cd.
