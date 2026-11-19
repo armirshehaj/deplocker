@@ -18,6 +18,9 @@ services:
     # No container_name: it is a global namespace, so a fixed one collides with
     # leftovers and blocks concurrent CI runs. Compose derives names per project.
     command: ["uv", "run", "pytest", "tests/", "-v"]
+    volumes:
+      # The host's Docker daemon, which the Docker service's tests build and run on
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       # Postgres — points at the ephemeral ci-postgres below, not the dev instance.
       POSTGRES_USER: postgres

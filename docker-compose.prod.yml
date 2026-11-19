@@ -33,6 +33,7 @@ services:
     # Runs the code and server command baked into the image
     volumes: !override
       - api_logs:/app/app/logs  # app.log and its rotated copies, kept across deploys
+      - /var/run/docker.sock:/var/run/docker.sock  # as in docker-compose.yml
     command: !reset null
     ports: !reset []
     # Kept out of docker-compose.yml, so `make start-dev` fails as soon as api exits
