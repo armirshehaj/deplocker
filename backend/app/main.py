@@ -16,6 +16,7 @@ from app.routers import (
     orgs_router,
     projects_router,
 )
+from app.services.docker import DockerService
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -28,6 +29,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Application starting up...")
 
     await ensure_schema_is_current(async_engine)
+
+    # Refuses to start without the Docker daemon, which every deployment needs
+    docker_version = await DockerService().daemon_version()
+    logger.info("Docker daemon %s is reachable", docker_version)
 
     yield
 

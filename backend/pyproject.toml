@@ -90,6 +90,7 @@ line-ending = "auto"
 [tool.pytest.ini_options]
 markers = [
     "network: reaches a server on the internet; deselect with -m 'not network'",
+    "docker: needs the host's Docker daemon; deselect with -m 'not docker'",
 ]
 
 [tool.mypy]
@@ -107,8 +108,10 @@ no_implicit_reexport = true
 
 [[tool.mypy.overrides]]
 module = [
+    "docker.*",
     "pwdlib.*",
     "pythonjsonlogger.*",
+    "requests.*",
 ]
 ignore_missing_imports = true
 disable_error_code = ["import-untyped"]
