@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     GIT_CLONE_TIMEOUT_SECONDS: float = 300
     GIT_MAX_REPOSITORY_SIZE_MB: float = 500
 
+    # The Docker network the deployed applications join, which docker-compose.yml
+    # declares
+    DOCKER_NETWORK: str = "deplocker-net"
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def FRONTEND_URL(self) -> str:

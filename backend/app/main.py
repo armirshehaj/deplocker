@@ -30,9 +30,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await ensure_schema_is_current(async_engine)
 
-    # Refuses to start without the Docker daemon, which every deployment needs
-    docker_version = await DockerService().daemon_version()
-    logger.info("Docker daemon %s is reachable", docker_version)
+    # Refuses to start without the Docker daemon, or the network the deployed
+    # applications join
+    docker = DockerService()
+    logger.info("Docker daemon %s is reachable", await docker.daemon_version())
+    await docker.ensure_network()
 
     yield
 

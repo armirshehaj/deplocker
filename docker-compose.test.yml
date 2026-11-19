@@ -21,7 +21,13 @@ services:
     volumes:
       # The host's Docker daemon, which the Docker service's tests build and run on
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+      - deplocker-test-net
     environment:
+      # The network the tests' containers join, apart from the dev stack's
+      DOCKER_NETWORK: deplocker-test-net
+
       # Postgres — points at the ephemeral ci-postgres below, not the dev instance.
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -87,3 +93,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 10s
+
+networks:
+  deplocker-test-net:
+    name: deplocker-test-net

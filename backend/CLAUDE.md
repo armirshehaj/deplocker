@@ -101,9 +101,11 @@ The stack runs no task queue or worker. One comes with the first feature that ne
 
 `DockerService` (`app/services/docker.py`) builds images and runs containers on the host's Docker daemon, which the api container reaches through the socket the compose files mount. Its docker-py calls share one client, `get_docker_client` (`app/core/docker.py`), created on first use because creating it already contacts the daemon. docker-py blocks for the whole of each call, so `_call` runs every one in a worker thread. A daemon out of reach, on connecting or mid-call, raises `DockerUnavailableError`.
 
+The deployed applications share one network, named by `DOCKER_NETWORK` (`deplocker-net`). `docker-compose.yml` declares it under that fixed name and attaches `api`; the API never creates it, only checks that it exists. The test stack declares its own, `deplocker-test-net`.
+
 ### Startup and migrations
 
-Alembic owns the schema. The container entrypoint (`scripts/entrypoint.sh`) runs `alembic upgrade head` before the app starts, and the FastAPI lifespan calls `ensure_schema_is_current` (`app/core/migrations.py`), which refuses to start unless the database is at the migration head — a stale schema fails loudly rather than being patched at runtime. It then asks the Docker daemon for its version, logs it, and likewise refuses to start when the daemon is out of reach. Alembic (`alembic/env.py`) imports all models explicitly and uses the same `DATABASE_URL` from `app.core.database`.
+Alembic owns the schema. The container entrypoint (`scripts/entrypoint.sh`) runs `alembic upgrade head` before the app starts, and the FastAPI lifespan calls `ensure_schema_is_current` (`app/core/migrations.py`), which refuses to start unless the database is at the migration head — a stale schema fails loudly rather than being patched at runtime. It then asks the Docker daemon for its version, logs it, and likewise refuses to start when the daemon is out of reach or the deployed applications' network is missing. Alembic (`alembic/env.py`) imports all models explicitly and uses the same `DATABASE_URL` from `app.core.database`.
 
 Any model change needs a migration: CI runs `make backend-migrations-ci`, which applies the migrations to an empty database and fails if `alembic check` finds the models drifting from them. The test suite is the one place that still builds tables with `Base.metadata.create_all` (`tests/conftest.py`).
 

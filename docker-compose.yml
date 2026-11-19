@@ -29,6 +29,9 @@ services:
       - /app/.venv   # keep the image's venv; don't let the bind mount above hide it
       # The host's Docker daemon, which builds and runs the deployed applications
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+      - deplocker-net
     ports:
       # Where the Vite dev server passes /api
       - "127.0.0.1:8080:8080"
@@ -112,6 +115,12 @@ services:
       - "8082:8082"
     volumes:
       - ./caddy:/etc/caddy:ro
+
+networks:
+  # The network the deployed applications join. Its fixed name, without the
+  # project prefix, is the one the API looks up (DOCKER_NETWORK)
+  deplocker-net:
+    name: deplocker-net
 
 volumes:
   pgdata:
