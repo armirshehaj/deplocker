@@ -7,7 +7,7 @@ from app.cli import app
 
 
 @pytest.mark.usefixtures("unreachable_daemon")
-@pytest.mark.parametrize("command", [["version"], ["network"]])
+@pytest.mark.parametrize("command", [["version"], ["network"], ["run", "busybox:1.36"]])
 def test_command_without_a_daemon(command: list[str]) -> None:
     result = CliRunner().invoke(app, ["docker", *command])
 
@@ -46,3 +46,12 @@ def test_image_tag_of_a_branch_name() -> None:
 
     assert result.exit_code == 1
     assert "Not a full commit hash" in result.stderr
+
+
+def test_run_with_a_malformed_variable() -> None:
+    result = CliRunner().invoke(
+        app, ["docker", "run", "busybox:1.36", "-e", "GREETING"]
+    )
+
+    assert result.exit_code == 1
+    assert "Not NAME=VALUE: GREETING" in result.stderr

@@ -107,3 +107,49 @@ def image_tag(
         raise typer.Exit(1) from error
 
     typer.echo(tag)
+
+
+@app.command()
+@async_command
+async def run(
+    image: Annotated[str, typer.Argument(help="The image to start.")],
+    application_id: Annotated[
+        uuid.UUID | None,
+        typer.Option(
+            "--application",
+            help="The id of the application the container serves, which names "
+            "the container. Without it, a new random id.",
+            show_default=False,
+        ),
+    ] = None,
+    environment: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--env",
+            "-e",
+            help="An environment variable, as NAME=VALUE. Repeat it for more.",
+        ),
+    ] = None,
+) -> None:
+    """Start an application's container as the platform does: on the deployed
+    applications' network, with no port published on the host."""
+    variables = {}
+    for assignment in environment or []:
+        name, separator, value = assignment.partition("=")
+        if not name or not separator:
+            typer.secho(f"Not NAME=VALUE: {assignment}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(1)
+        variables[name] = value
+
+    service = DockerService()
+    try:
+        container = await service.run_container(
+            application_id or uuid.uuid4(), image, variables
+        )
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"Container   {container.name}")
+    typer.echo(f"ID          {container.id}")
+    typer.echo(f"Network     {service.network}")

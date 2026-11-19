@@ -3,20 +3,26 @@ import contextlib
 import os
 import signal
 import tempfile
+import uuid
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from docker import DockerClient
-from docker.errors import DockerException, NotFound
+from docker.errors import APIError, DockerException, ImageNotFound, NotFound
 from requests.exceptions import ConnectionError as DaemonConnectionError
 
 from app.core.conf import settings
 from app.core.docker import DOCKER_HOST, get_docker_client
+from app.utils.docker.names import container_name
 
 # How many of a build's last lines of output its error carries
 BUILD_OUTPUT_TAIL_LINES = 20
+
+# Marks each container the platform runs with the application it serves
+APPLICATION_LABEL = "deplocker.application"
 
 
 class DockerError(Exception):
@@ -46,12 +52,28 @@ class BuildTimeoutError(BuildError):
     """The build took longer than it is allowed."""
 
 
+class ImageNotFoundError(DockerError):
+    """The daemon holds no image of the given name."""
+
+
+class ContainerNameTakenError(DockerError):
+    """The application already has a container."""
+
+
 @dataclass(frozen=True)
 class Image:
     """An image the daemon holds."""
 
     tag: str
     id: str
+
+
+@dataclass(frozen=True)
+class Container:
+    """A container the daemon runs."""
+
+    id: str
+    name: str
 
 
 class DockerService:
@@ -119,6 +141,52 @@ class DockerService:
             if status != 0:
                 raise BuildError(f"Build failed with exit status {status}", tail)
             return Image(tag=tag, id=id_file.read_text().strip())
+
+    async def run_container(
+        self,
+        application_id: uuid.UUID,
+        image: str,
+        environment: Mapping[str, str],
+    ) -> Container:
+        """Starts an application's container from `image`, with `environment` as its
+        environment variables. It joins the deployed applications' network under
+        the application's container name and publishes no port on the host, so
+        it is reachable on that network alone.
+
+        Raises ImageNotFoundError when the daemon holds no `image`, and
+        ContainerNameTakenError when the application already has a container."""
+        name = container_name(application_id)
+
+        def run(client: DockerClient) -> Any:
+            # Created, then started: containers.run would pull an image it cannot
+            # find, from a registry that never holds the platform's images
+            container = client.containers.create(
+                image,
+                name=name,
+                environment=dict(environment),
+                network=self.network,
+                labels={APPLICATION_LABEL: str(application_id)},
+                # Back after a crash or a restart of the daemon, unless stopped
+                restart_policy={"Name": "unless-stopped"},
+            )
+            try:
+                container.start()
+            except BaseException:
+                container.remove(force=True)
+                raise
+            return container
+
+        try:
+            container = await self._call(run)
+        except ImageNotFound as error:
+            raise ImageNotFoundError(f"Image {image} does not exist") from error
+        except APIError as error:
+            if error.status_code == 409:
+                raise ContainerNameTakenError(
+                    f"Container {name} already exists"
+                ) from error
+            raise
+        return Container(id=str(container.id), name=name)
 
     async def _build(
         self,

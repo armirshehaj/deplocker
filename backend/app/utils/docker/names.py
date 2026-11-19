@@ -13,3 +13,9 @@ def image_tag(application_id: uuid.UUID, commit_hash: str) -> str:
     if not COMMIT_HASH.fullmatch(commit_hash):
         raise ValueError(f"Not a full commit hash: {commit_hash!r}")
     return f"deplocker-app-{application_id}:{commit_hash}"
+
+
+def container_name(application_id: uuid.UUID) -> str:
+    """The name of an application's container, by which the other containers on
+    the deployed applications' network reach it."""
+    return f"deplocker-app-{application_id}"

@@ -105,7 +105,9 @@ Builds don't go through docker-py, which drives only Docker's deprecated classic
 
 The deployed applications share one network, named by `DOCKER_NETWORK` (`deplocker-net`). `docker-compose.yml` declares it under that fixed name and attaches `api`; the API never creates it, only checks that it exists. The test stack declares its own, `deplocker-test-net`.
 
-An application's images take their names from its id, unique and fixed unlike its slugs, which repeat across organizations and change on rename: `image_tag` (`app/utils/docker/names.py`) tags the image built from a commit `deplocker-app-<application-id>:<commit-hash>`.
+An application's images and container take their names from its id, unique and fixed unlike its slugs, which repeat across organizations and change on rename (`app/utils/docker/names.py`): `image_tag` tags the image built from a commit `deplocker-app-<application-id>:<commit-hash>`, and `container_name` names its container `deplocker-app-<application-id>`.
+
+`run_container` starts an application's container on the deployed applications' network, under its container name, and publishes no port on the host: the other containers on the network reach it by name, and nothing else reaches it. It creates the container and then starts it, because `containers.run` pulls an image it cannot find, from a registry that never holds the platform's images. Each container carries the `deplocker.application` label and restarts after a crash or a daemon restart, unless stopped.
 
 ### Startup and migrations
 
