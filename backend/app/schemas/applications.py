@@ -4,6 +4,7 @@ from enum import Enum
 
 from pydantic import BaseModel, NonNegativeInt
 
+from app.utils.git.urls import RepositoryUrl
 from app.utils.text.slug_generator import SluggableName
 
 
@@ -20,7 +21,7 @@ class AppStatus(Enum):
 class ApplicationBase(BaseModel):
     name: SluggableName
     description: str
-    git_url: str
+    git_url: RepositoryUrl
     branch: str = "main"
     dockerfile_path: str = "./Dockerfile"
     port: NonNegativeInt = 8000
@@ -36,7 +37,7 @@ class ApplicationCreate(ApplicationBase):
 class ApplicationUpdate(BaseModel):
     name: SluggableName | None = None
     description: str | None = None
-    git_url: str | None = None
+    git_url: RepositoryUrl | None = None
     branch: str | None = None
     dockerfile_path: str | None = None
     port: int | None = None

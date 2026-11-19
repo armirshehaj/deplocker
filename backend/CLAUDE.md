@@ -12,6 +12,9 @@ uv sync --dev --frozen     # install all deps (locked)
 # Run the API (inside container or with env loaded)
 uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 
+# Run one of the platform's operations by hand (inside the api container)
+docker compose exec api deplocker --help
+
 # Lint and format
 ruff check .
 ruff format .
@@ -38,6 +41,12 @@ Settings come from real environment variables; compose injects them by reading `
 
 Routers (`app/routers/`) receive requests and inject dependencies via FastAPI's `Depends`. Simple CRUD is handled directly in routers. Complex domain logic is delegated to service classes (`app/services/`), which accept an `AsyncSession` and encapsulate the DB operations. All database access is async via SQLAlchemy + asyncpg.
 
+### Command line
+
+The `deplocker` command (`app/cli/`) is a second way into the services, beside the routers: each command runs one operation on input given at the terminal and prints the outcome, so every operation can be tried by hand on real samples. Like a router, a command module holds only its commands: they parse their arguments, call a service and report the result, and the logic stays in the service. A module is the command group of one service (`app/cli/git.py` is `deplocker git`), added to the root `app` in `app/cli/__init__.py`. A failed operation prints its error on stderr and exits with status 1. Typer calls commands synchronously, so a coroutine command is wrapped in `async_command` (`app/utils/cli/commands.py`).
+
+The command is the console script of the backend's package (`[project.scripts]` in `pyproject.toml`), and the image puts the virtual environment's commands on the path, so it runs by name in the api container.
+
 ### Helpers
 
 Every helper function lives under `app/utils/` — never in a router, model or schema module, even when only one route calls it. Routers keep only path operation functions.
@@ -63,6 +72,8 @@ Passkeys use discoverable credentials, so `POST /auth/passkeys/login` identifies
 ### Domain model
 
 `Project` → `Application` → `Deployment` → `DeploymentLogs` is the core ownership chain. Applications hold the Docker/Git config (git URL, branch, dockerfile path, port, env vars, domain). A `Deployment` tracks a single deploy lifecycle through states: `pending → cloning → building → pushing → deploying → health_checking → success/failed/cancelled`.
+
+A repository URL carries no credentials. Request schemas type `git_url` as `RepositoryUrl` (`app/utils/git/urls.py`), so a URL with a username, password or token before its host is a 422, and `GitService` refuses one too. A token for a private repository therefore never reaches the database, an API response or git's command line; it belongs in a field of its own, handed to git apart from the URL.
 
 `User` → `Organization` is M2M via `OrganizationMembersModel`. On registration, a default organization is automatically created for the user with `OWNER` role.
 

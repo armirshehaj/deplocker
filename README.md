@@ -188,6 +188,34 @@ installed before `mkcert -install`. Git ignores the `.pem` files.
 
 ---
 
+## Trying an operation by hand
+
+The tests check each operation against samples written for them. The
+`deplocker` command puts the same operation to work on the real thing: a
+repository of yours, a branch that may not exist, a URL the platform should
+refuse. Each of its commands runs one operation through the platform's own
+code and shows the outcome, so what you see is what the platform does.
+
+With the stack running, call it inside the `api` container, where the platform
+itself runs:
+
+```sh
+docker compose exec api deplocker git clone https://github.com/octocat/Hello-World --branch master
+```
+
+```text
+Commit      7fd1a60b01f91b314f59955a4e4d4e80d8edf11d
+Subject     Merge pull request #6 from Spaceghost/patch-1
+Took        1.4s
+```
+
+When an operation fails, the command prints the reason and exits with status 1.
+`deplocker --help` lists the commands, and `--help` after any of them describes
+its options. On the production server, the same commands run in its `api`
+container: `docker exec deplocker-api deplocker …`.
+
+---
+
 ## Checks
 
 Every check is a Make target, and the Git hooks and CI call the very same

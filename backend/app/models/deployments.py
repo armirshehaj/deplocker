@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,7 @@ class DeploymentModel(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     commit_hash: Mapped[str] = mapped_column(String(40), nullable=True)
+    commit_subject: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # The log file, on local disk or in cloud storage such as S3 or GCS
     log_uri: Mapped[str] = mapped_column(String(255), nullable=True)

@@ -57,6 +57,7 @@ erDiagram
     UUID id PK
     UUID application_id FK "indexed"
     VARCHAR(40) commit_hash "nullable"
+    TEXT commit_subject "nullable"
     DATETIME completed_at "nullable"
     INTEGER log_size "nullable"
     VARCHAR(255) log_uri "nullable"
@@ -202,7 +203,7 @@ Its configuration says where the code lives and how to run it:
 
 | Column | Meaning | Default |
 | --- | --- | --- |
-| `git_url` | Repository to deploy | |
+| `git_url` | Repository to deploy, cloned over HTTPS; the URL carries no credentials | |
 | `branch` | Branch to deploy | `main` |
 | `dockerfile_path` | Dockerfile that builds the image, relative to the repository root | `./Dockerfile` |
 | `port` | Port the application listens on inside its container | `8000` |
@@ -227,7 +228,9 @@ One row per attempt to deploy an application.
   `success`, `failed` or `cancelled`. New deployments start as `pending`;
   nothing moves them further until the deployment pipeline is implemented.
 - `started_at` and `completed_at` mark when the attempt began and ended.
-- `commit_hash` is the Git commit being deployed.
+- `commit_hash` is the Git commit being deployed, and `commit_subject` the
+  subject line of its message, so a deployment can be told apart from the
+  others without looking it up in the repository.
 - `log_uri` points to the deployment's log file, on local disk or in cloud
   storage, and `log_size` is that file's size in bytes. The log itself is not
   stored in the database.

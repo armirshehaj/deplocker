@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     WEBAUTHN_RP_NAME: str = "Deplocker"
     WEBAUTHN_RP_ID: str = ""
 
+    # Limits on cloning a tenant's repository, which guard the server's time and
+    # disk: how long the clone may take, and how much space its history and
+    # files together may fill
+    GIT_CLONE_TIMEOUT_SECONDS: float = 300
+    GIT_MAX_REPOSITORY_SIZE_MB: float = 500
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def FRONTEND_URL(self) -> str:
