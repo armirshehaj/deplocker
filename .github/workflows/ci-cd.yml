@@ -44,10 +44,6 @@ jobs:
         if: steps.changes.outputs.frontend
         run: make frontend-test-ci
 
-      # uv runs the backend's lint; the production server has it installed
-      - uses: astral-sh/setup-uv@v10.3.3
-        if: steps.changes.outputs.backend && runner.environment == 'github-hosted'
-
       - name: Lint & typecheck backend
         if: steps.changes.outputs.backend
         run: make backend-lint-ci

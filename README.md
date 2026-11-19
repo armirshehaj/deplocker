@@ -195,7 +195,7 @@ targets, so a check gives the same verdict on your machine as in CI.
 
 | Hook | What it does |
 | --- | --- |
-| `pre-commit` | Lints the parts with staged changes through `make lint-ci`: ESLint, Prettier and the TypeScript compiler for the frontend, Ruff's format check and mypy for the backend. When models or migrations are staged, it also checks that the migrations build the schema the models describe. |
+| `pre-commit` | Lints the parts with staged changes through `make lint-ci`: ESLint, Prettier and the TypeScript compiler for the frontend, Ruff's format check and mypy for the backend, run in its test image. When models or migrations are staged, it also checks that the migrations build the schema the models describe. |
 | `pre-push` | Rejects pushes to `master`, so changes reach it only through a pull request |
 
 The hooks only report problems; they never rewrite your code. Formatting is
