@@ -195,7 +195,7 @@ targets, so a check gives the same verdict on your machine as in CI.
 
 | Hook | What it does |
 | --- | --- |
-| `pre-commit` | Lints the parts with staged changes through `make lint-ci`: ESLint, Prettier and the TypeScript compiler for the frontend, Ruff's format check and mypy for the backend. When models or migrations are staged, it also checks that the migrations build the schema the models describe. |
+| `pre-commit` | Lints the parts with staged changes through `make lint-ci`: ESLint, Prettier and the TypeScript compiler for the frontend, Ruff's format check and mypy for the backend, run in its test image. When models or migrations are staged, it also checks that the migrations build the schema the models describe. |
 | `pre-push` | Rejects pushes to `master`, so changes reach it only through a pull request |
 
 The hooks only report problems; they never rewrite your code. Formatting is
@@ -208,21 +208,30 @@ them.
 ## CI/CD
 
 A single workflow, [.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml),
-runs on every push to every branch. Both of its jobs run on a self-hosted
-runner, which is also the production server.
+runs on every push to every branch. Its `ci` job runs on GitHub's runners
+unless the repository variable `CI_RUNNER` names others: `self-hosted` moves it
+onto the production server, which is a self-hosted runner. The `cd` job always
+runs on the production server, and only while `CI_RUNNER` is `self-hosted`,
+since it deploys the images `ci` built on that machine. Switching takes no
+commit:
+
+```sh
+gh variable set CI_RUNNER --body self-hosted   # build, test and deploy on the server
+gh variable delete CI_RUNNER                   # build and test on GitHub's runners
+```
 
 **Build & Test** (`ci` job):
 
 1. Checks each part the push changed. Frontend: lint, type check, tests.
    Backend: lint, type check, a check that the migrations match the models,
    and tests. A new branch or a force push checks both.
-2. Removes the backend test stack, even after a failed check, since the next
-   run reuses the runner's workspace.
+2. Removes the backend test stack, even after a failed check, since a
+   self-hosted runner reuses its workspace for the next run.
 3. Builds the `api` and `ui` images and publishes them to the GitHub Container
    Registry, tagged with the commit SHA and `latest`.
 
 **Deploy to production** (`cd` job) runs on `master` only, once `ci` has
-succeeded. It restarts the stack on the images `ci` built from the same commit
+succeeded on the production server. It restarts the stack on the images `ci` built from the same commit
 on the same machine, then gives the API up to three minutes to report healthy,
 failing the job otherwise. Last, it reloads Caddy with the commit's Caddyfile,
 which Caddy applies without a restart.
