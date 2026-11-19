@@ -9,6 +9,7 @@ import pytest
 from app.services.git import (
     BranchNotFoundError,
     CloneTimeoutError,
+    CredentialsInUrlError,
     DockerfileNotFoundError,
     DockerfileOutsideRepositoryError,
     GitError,
@@ -112,6 +113,18 @@ async def test_clone_repository_over_a_protocol_not_allowed(
         await GitService().clone_repository(
             f"file://{repository}", "main", tmp_path / "clone"
         )
+
+
+@pytest.mark.anyio
+async def test_clone_repository_with_credentials_in_its_url(tmp_path: Path) -> None:
+    destination = tmp_path / "clone"
+
+    with pytest.raises(CredentialsInUrlError):
+        await GitService().clone_repository(
+            "https://s3cr3t-token@github.com/octocat/Hello-World", "master", destination
+        )
+
+    assert not destination.exists()
 
 
 @pytest.mark.anyio

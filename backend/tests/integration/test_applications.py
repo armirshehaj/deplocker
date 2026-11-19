@@ -105,6 +105,42 @@ async def test_rename_application_to_unsluggable_name(
 
 
 @pytest.mark.anyio
+async def test_create_application_with_credentials_in_its_git_url(
+    authenticated_client: AsyncClient, project_create_test: Response
+) -> None:
+    payload = {
+        "project_id": project_create_test.json()["id"],
+        "name": "Deplocker API",
+        "description": fake.sentence(),
+        "git_url": "https://s3cr3t-token@github.com/armir-eng/deplocker-api",
+        "env_vars": {},
+        "domain": fake.domain_name(),
+    }
+
+    response = await authenticated_client.post("/applications", json=payload)
+    assert response.status_code == 422
+
+    listed = await authenticated_client.get("/applications")
+    assert "s3cr3t-token" not in listed.text
+
+
+@pytest.mark.anyio
+async def test_update_application_with_credentials_in_its_git_url(
+    authenticated_client: AsyncClient, application_create_test: Response
+) -> None:
+    application_id = application_create_test.json()["id"]
+
+    response = await authenticated_client.patch(
+        f"/applications/{application_id}",
+        json={"git_url": "https://s3cr3t-token@github.com/armir-eng/deplocker-api"},
+    )
+    assert response.status_code == 422
+
+    stored = await authenticated_client.get(f"/applications/{application_id}")
+    assert stored.json()["git_url"] == application_create_test.json()["git_url"]
+
+
+@pytest.mark.anyio
 async def test_rename_application_regenerates_slug(
     authenticated_client: AsyncClient,
     application_create_test: Response,

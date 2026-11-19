@@ -203,7 +203,7 @@ Its configuration says where the code lives and how to run it:
 
 | Column | Meaning | Default |
 | --- | --- | --- |
-| `git_url` | Repository to deploy | |
+| `git_url` | Repository to deploy, cloned over HTTPS; the URL carries no credentials | |
 | `branch` | Branch to deploy | `main` |
 | `dockerfile_path` | Dockerfile that builds the image, relative to the repository root | `./Dockerfile` |
 | `port` | Port the application listens on inside its container | `8000` |

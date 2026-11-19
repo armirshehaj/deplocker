@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.conf import settings
+from app.utils.git.urls import carries_credentials
 
 
 class GitError(Exception):
@@ -27,6 +28,10 @@ class DockerfileNotFoundError(GitError):
 
 class DockerfileOutsideRepositoryError(GitError):
     """The Dockerfile path leads out of the repository."""
+
+
+class CredentialsInUrlError(GitError):
+    """The URL holds credentials, which the platform never takes in a URL."""
 
 
 class CloneTimeoutError(GitError):
@@ -73,6 +78,8 @@ class GitService:
     async def clone_repository(
         self, url: str, branch: str, destination: Path, depth: int = 1
     ) -> Path:
+        if carries_credentials(url):
+            raise CredentialsInUrlError("Repository URL must not carry credentials")
         try:
             async with asyncio.timeout(self.clone_timeout):
                 await self._clone(url, branch, destination, depth)

@@ -73,6 +73,8 @@ Passkeys use discoverable credentials, so `POST /auth/passkeys/login` identifies
 
 `Project` → `Application` → `Deployment` → `DeploymentLogs` is the core ownership chain. Applications hold the Docker/Git config (git URL, branch, dockerfile path, port, env vars, domain). A `Deployment` tracks a single deploy lifecycle through states: `pending → cloning → building → pushing → deploying → health_checking → success/failed/cancelled`.
 
+A repository URL carries no credentials. Request schemas type `git_url` as `RepositoryUrl` (`app/utils/git/urls.py`), so a URL with a username, password or token before its host is a 422, and `GitService` refuses one too. A token for a private repository therefore never reaches the database, an API response or git's command line; it belongs in a field of its own, handed to git apart from the URL.
+
 `User` → `Organization` is M2M via `OrganizationMembersModel`. On registration, a default organization is automatically created for the user with `OWNER` role.
 
 A membership's role ranks `OWNER` over `ADMIN` over `MEMBER`, each holding the powers of those below it. Routes reach a resource through `ensure_organization_member` and the `get_member_*` helpers (`app/utils/organizations/membership.py`): 404 outside the caller's organizations, 403 to a member below the `required_role` they're given (any member by default). A route needing more than membership on the resource in its `{id}` path takes it from the `require_role` dependency (`app/utils/organizations/roles.py`); a create route, whose parent is in the body, passes `required_role` to the helper.

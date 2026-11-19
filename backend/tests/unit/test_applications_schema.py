@@ -52,7 +52,7 @@ def test_application_env_vars_dict(
 def test_application_partial_update() -> None:
     payload = {
         "description": "Easily deploy and scale your dockerized projects",
-        "git_url": "ssh://git@github.com/armir-eng/deplocker-api.git",
+        "git_url": "https://github.com/armir-eng/deplocker-api.git",
     }
 
     schema_object = ApplicationUpdate(**payload)
@@ -63,3 +63,21 @@ def test_application_partial_update() -> None:
 
         else:
             assert value is None
+
+
+@pytest.mark.parametrize(
+    "git_url",
+    [
+        "https://s3cr3t-token@github.com/armir-eng/deplocker-api.git",
+        "https://armir-eng:s3cr3t-token@github.com/armir-eng/deplocker-api.git",
+    ],
+)
+def test_application_git_url_with_credentials(
+    test_application_create_payload: dict[str, Any], git_url: str
+) -> None:
+    test_application_create_payload["git_url"] = git_url
+    with pytest.raises(ValidationError):
+        ApplicationCreate(**test_application_create_payload)
+
+    with pytest.raises(ValidationError):
+        ApplicationUpdate(git_url=git_url)
