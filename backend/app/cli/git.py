@@ -1,4 +1,3 @@
-import tempfile
 import time
 from pathlib import Path
 from typing import Annotated
@@ -7,6 +6,7 @@ import typer
 
 from app.services.git import GitError, GitService
 from app.utils.cli.commands import async_command
+from app.utils.deployments.workspace import deployment_workspace
 
 app = typer.Typer(help="Run the Git service's operations.", no_args_is_help=True)
 
@@ -33,8 +33,8 @@ async def clone(
     """Clone a branch of a repository as the platform does, and show the commit it
     checked out."""
     service = GitService()
-    with tempfile.TemporaryDirectory() as workspace:
-        destination = into or Path(workspace, "repository")
+    async with deployment_workspace() as workspace:
+        destination = into or workspace / "repository"
         started = time.perf_counter()
         try:
             repository = await service.clone_repository(url, branch, destination, depth)
