@@ -87,6 +87,11 @@ quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
 
+[tool.pytest.ini_options]
+markers = [
+    "network: reaches a server on the internet; deselect with -m 'not network'",
+]
+
 [tool.mypy]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
