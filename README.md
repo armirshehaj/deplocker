@@ -204,9 +204,9 @@ docker compose exec api deplocker git clone https://github.com/octocat/Hello-Wor
 ```
 
 ```text
-Commit   7fd1a60b01f91b314f59955a4e4d4e80d8edf11d
-Subject  Merge pull request #6 from Spaceghost/patch-1
-Took     1.4s
+Commit      7fd1a60b01f91b314f59955a4e4d4e80d8edf11d
+Subject     Merge pull request #6 from Spaceghost/patch-1
+Took        1.4s
 ```
 
 When an operation fails, the command prints the reason and exits with status 1.

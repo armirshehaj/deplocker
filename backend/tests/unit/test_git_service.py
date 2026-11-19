@@ -6,6 +6,8 @@ import pytest
 
 from app.services.git import (
     BranchNotFoundError,
+    DockerfileNotFoundError,
+    DockerfileOutsideRepositoryError,
     GitError,
     GitService,
     RepositoryNotFoundError,
@@ -164,3 +166,92 @@ async def test_read_head_commit_with_an_empty_message(repository: Path) -> None:
 async def test_read_head_commit_outside_a_repository(tmp_path: Path) -> None:
     with pytest.raises(GitError):
         await GitService().read_head_commit(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("dockerfile_path", "expected"),
+    [
+        ("./Dockerfile", "Dockerfile"),
+        ("Dockerfile", "Dockerfile"),
+        ("docker/api.Dockerfile", "docker/api.Dockerfile"),
+        ("docker/../Dockerfile", "Dockerfile"),
+    ],
+)
+def test_resolve_dockerfile(
+    repository: Path, dockerfile_path: str, expected: str
+) -> None:
+    (repository / "Dockerfile").write_text("FROM scratch\n")
+    (repository / "docker").mkdir()
+    (repository / "docker" / "api.Dockerfile").write_text("FROM scratch\n")
+
+    dockerfile = GitService().resolve_dockerfile(repository, dockerfile_path)
+
+    assert dockerfile == (repository / expected).resolve()
+
+
+def test_resolve_dockerfile_through_a_link_inside_the_repository(
+    repository: Path,
+) -> None:
+    (repository / "docker").mkdir()
+    (repository / "docker" / "api.Dockerfile").write_text("FROM scratch\n")
+    (repository / "Dockerfile").symlink_to("docker/api.Dockerfile")
+
+    dockerfile = GitService().resolve_dockerfile(repository, "Dockerfile")
+
+    assert dockerfile == (repository / "docker" / "api.Dockerfile").resolve()
+
+
+@pytest.mark.parametrize(
+    "dockerfile_path", ["Dockerfile", "docker/Dockerfile", "docker"]
+)
+def test_resolve_dockerfile_missing(repository: Path, dockerfile_path: str) -> None:
+    (repository / "docker").mkdir()
+
+    with pytest.raises(DockerfileNotFoundError):
+        GitService().resolve_dockerfile(repository, dockerfile_path)
+
+
+@pytest.fixture()
+def outside_dockerfile(tmp_path: Path) -> Path:
+    """A Dockerfile beside the repository, which no path may reach."""
+    path = tmp_path / "Dockerfile"
+    path.write_text("FROM scratch\n")
+    return path
+
+
+@pytest.mark.parametrize(
+    "dockerfile_path", ["../Dockerfile", "docker/../../Dockerfile"]
+)
+@pytest.mark.usefixtures("outside_dockerfile")
+def test_resolve_dockerfile_through_parent_directories(
+    repository: Path, dockerfile_path: str
+) -> None:
+    (repository / "docker").mkdir()
+
+    with pytest.raises(DockerfileOutsideRepositoryError):
+        GitService().resolve_dockerfile(repository, dockerfile_path)
+
+
+def test_resolve_dockerfile_at_an_absolute_path(
+    repository: Path, outside_dockerfile: Path
+) -> None:
+    with pytest.raises(DockerfileOutsideRepositoryError):
+        GitService().resolve_dockerfile(repository, str(outside_dockerfile))
+
+
+def test_resolve_dockerfile_through_a_link_to_a_file_outside(
+    repository: Path, outside_dockerfile: Path
+) -> None:
+    (repository / "Dockerfile").symlink_to(outside_dockerfile)
+
+    with pytest.raises(DockerfileOutsideRepositoryError):
+        GitService().resolve_dockerfile(repository, "Dockerfile")
+
+
+def test_resolve_dockerfile_through_a_link_to_a_directory_outside(
+    repository: Path, outside_dockerfile: Path
+) -> None:
+    (repository / "docker").symlink_to(outside_dockerfile.parent)
+
+    with pytest.raises(DockerfileOutsideRepositoryError):
+        GitService().resolve_dockerfile(repository, "docker/Dockerfile")

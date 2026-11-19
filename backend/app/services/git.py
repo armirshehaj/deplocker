@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 class GitError(Exception):
-    """A git operation on a repository failed."""
+    """A repository could not be made into a working tree to build from."""
 
 
 class RepositoryNotFoundError(GitError):
@@ -16,6 +16,14 @@ class RepositoryNotFoundError(GitError):
 
 class BranchNotFoundError(GitError):
     """The repository has no branch of the requested name."""
+
+
+class DockerfileNotFoundError(GitError):
+    """The repository has no file at the Dockerfile path."""
+
+
+class DockerfileOutsideRepositoryError(GitError):
+    """The Dockerfile path leads out of the repository."""
 
 
 @dataclass(frozen=True)
@@ -77,6 +85,22 @@ class GitService:
             raise GitError(f"Reading the commit failed: {stderr}")
         commit_hash, subject = stdout.split("\0", 1)
         return Commit(hash=commit_hash, subject=subject)
+
+    def resolve_dockerfile(self, repository: Path, dockerfile_path: str) -> Path:
+        """The Dockerfile at `dockerfile_path`, which a tenant gives relative to
+        the repository's root. A path that leads out of the repository, through
+        `..`, an absolute path or a symbolic link, is refused."""
+        root = repository.resolve()
+        dockerfile = (root / dockerfile_path).resolve()
+        if not dockerfile.is_relative_to(root):
+            raise DockerfileOutsideRepositoryError(
+                f"Dockerfile '{dockerfile_path}' is outside the repository"
+            )
+        if not dockerfile.is_file():
+            raise DockerfileNotFoundError(
+                f"Dockerfile '{dockerfile_path}' not found in the repository"
+            )
+        return dockerfile
 
     async def _git(self, *args: str) -> tuple[int, str, str]:
         process = await asyncio.create_subprocess_exec(
