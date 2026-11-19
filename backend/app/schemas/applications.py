@@ -49,6 +49,9 @@ class ApplicationUpdate(BaseModel):
 class ApplicationResponse(ApplicationCreate):
     id: uuid.UUID
     slug: str
+    # Read-only: the platform sets them, so a tenant cannot raise its own
+    memory_limit_mb: int
+    cpu_limit: float
     status: AppStatus
     created_at: datetime
     updated_at: datetime

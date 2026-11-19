@@ -69,6 +69,15 @@ class Image:
 
 
 @dataclass(frozen=True)
+class ResourceLimits:
+    """The resources a container may use: memory in MB, and a number of the
+    host's CPUs."""
+
+    memory_mb: int
+    cpus: float
+
+
+@dataclass(frozen=True)
 class Container:
     """A container the daemon runs."""
 
@@ -147,11 +156,12 @@ class DockerService:
         application_id: uuid.UUID,
         image: str,
         environment: Mapping[str, str],
+        limits: ResourceLimits,
     ) -> Container:
         """Starts an application's container from `image`, with `environment` as its
-        environment variables. It joins the deployed applications' network under
-        the application's container name and publishes no port on the host, so
-        it is reachable on that network alone.
+        environment variables, using no more than `limits`. It joins the deployed
+        applications' network under the application's container name and
+        publishes no port on the host, so it is reachable on that network alone.
 
         Raises ImageNotFoundError when the daemon holds no `image`, and
         ContainerNameTakenError when the application already has a container."""
@@ -168,6 +178,10 @@ class DockerService:
                 labels={APPLICATION_LABEL: str(application_id)},
                 # Back after a crash or a restart of the daemon, unless stopped
                 restart_policy={"Name": "unless-stopped"},
+                mem_limit=f"{limits.memory_mb}m",
+                # The same as the memory limit, so no swap is added beyond it
+                memswap_limit=f"{limits.memory_mb}m",
+                nano_cpus=round(limits.cpus * 1_000_000_000),
             )
             try:
                 container.start()

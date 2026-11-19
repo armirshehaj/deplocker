@@ -109,6 +109,8 @@ An application's images and container take their names from its id, unique and f
 
 `run_container` starts an application's container on the deployed applications' network, under its container name, and publishes no port on the host: the other containers on the network reach it by name, and nothing else reaches it. It creates the container and then starts it, because `containers.run` pulls an image it cannot find, from a registry that never holds the platform's images. Each container carries the `deplocker.application` label and restarts after a crash or a daemon restart, unless stopped.
 
+A container uses no more than its `ResourceLimits`: memory, with no swap beyond it, and a number of the host's CPUs. Each application records its own limits, `memory_limit_mb` and `cpu_limit`, from `DOCKER_MEMORY_LIMIT_MB` and `DOCKER_CPU_LIMIT` when it is created. The API returns them but does not accept them, so a tenant cannot raise its own.
+
 ### Startup and migrations
 
 Alembic owns the schema. The container entrypoint (`scripts/entrypoint.sh`) runs `alembic upgrade head` before the app starts, and the FastAPI lifespan calls `ensure_schema_is_current` (`app/core/migrations.py`), which refuses to start unless the database is at the migration head — a stale schema fails loudly rather than being patched at runtime. It then asks the Docker daemon for its version, logs it, and likewise refuses to start when the daemon is out of reach or the deployed applications' network is missing. Alembic (`alembic/env.py`) imports all models explicitly and uses the same `DATABASE_URL` from `app.core.database`.

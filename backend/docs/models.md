@@ -37,6 +37,7 @@ erDiagram
     UUID project_id FK "indexed"
     VARCHAR(100) branch
     VARCHAR(64) container_id "nullable"
+    FLOAT cpu_limit
     DATETIME created_at
     TEXT description
     INTEGER desired_replicas
@@ -46,6 +47,7 @@ erDiagram
     VARCHAR(500) git_url
     VARCHAR(255) image_tag "nullable"
     DATETIME last_deployed_at "nullable"
+    INTEGER memory_limit_mb
     VARCHAR(255) name
     INTEGER port
     VARCHAR(100) slug
@@ -213,6 +215,12 @@ Its configuration says where the code lives and how to run it:
 `status` is one of `created` (the default), `deploying`, `running`,
 `unhealthy` (running, but failing health checks), `stopped`, `failed` or
 `deleting`.
+
+`memory_limit_mb` and `cpu_limit` bound the resources its container may use:
+memory in MB, and a number of the host's CPUs. An application records them from
+the platform's settings, `DOCKER_MEMORY_LIMIT_MB` (512) and `DOCKER_CPU_LIMIT`
+(1), when it is created. The API returns them but does not accept them, so a
+tenant cannot raise its own.
 
 `container_id`, `image_tag` and `last_deployed_at` describe the running
 container. They stay empty until the deployment pipeline is implemented.

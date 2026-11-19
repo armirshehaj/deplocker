@@ -5,6 +5,7 @@ from sqlalchemy import (
     JSON,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -15,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.conf import settings
 from app.core.database import Base
 from app.schemas.applications import AppStatus
 
@@ -46,6 +48,14 @@ class ApplicationModel(Base):
         String(255), nullable=False, unique=True, index=True
     )
     desired_replicas: Mapped[int] = mapped_column(Integer, default=1)
+
+    # The resources its container may use, from the platform's defaults
+    memory_limit_mb: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=lambda: settings.DOCKER_MEMORY_LIMIT_MB
+    )
+    cpu_limit: Mapped[float] = mapped_column(
+        Float, nullable=False, default=lambda: settings.DOCKER_CPU_LIMIT
+    )
 
     status: Mapped[AppStatus] = mapped_column(
         Enum(AppStatus), nullable=False, default=AppStatus.CREATED

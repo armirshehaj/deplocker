@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     # server's time
     DOCKER_BUILD_TIMEOUT_SECONDS: float = 900
 
+    # The resources a new application's container may use, so that no
+    # application starves the server: memory in MB, and a number of the host's
+    # CPUs. Each application records its own limits from these when created
+    DOCKER_MEMORY_LIMIT_MB: int = 512
+    DOCKER_CPU_LIMIT: float = 1.0
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def FRONTEND_URL(self) -> str:

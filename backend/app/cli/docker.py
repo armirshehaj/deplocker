@@ -6,7 +6,7 @@ from typing import Annotated
 import typer
 
 from app.core.conf import settings
-from app.services.docker import DockerError, DockerService
+from app.services.docker import DockerError, DockerService, ResourceLimits
 from app.utils.cli.commands import async_command
 from app.utils.docker.names import image_tag as tag_for
 
@@ -130,6 +130,13 @@ async def run(
             help="An environment variable, as NAME=VALUE. Repeat it for more.",
         ),
     ] = None,
+    memory: Annotated[
+        int, typer.Option(min=6, help="The memory the container may use, in MB.")
+    ] = settings.DOCKER_MEMORY_LIMIT_MB,
+    cpus: Annotated[
+        float,
+        typer.Option(min=0.01, help="How many of the host's CPUs it may use."),
+    ] = settings.DOCKER_CPU_LIMIT,
 ) -> None:
     """Start an application's container as the platform does: on the deployed
     applications' network, with no port published on the host."""
@@ -144,7 +151,10 @@ async def run(
     service = DockerService()
     try:
         container = await service.run_container(
-            application_id or uuid.uuid4(), image, variables
+            application_id or uuid.uuid4(),
+            image,
+            variables,
+            ResourceLimits(memory_mb=memory, cpus=cpus),
         )
     except DockerError as error:
         typer.secho(str(error), fg=typer.colors.RED, err=True)
@@ -153,3 +163,4 @@ async def run(
     typer.echo(f"Container   {container.name}")
     typer.echo(f"ID          {container.id}")
     typer.echo(f"Network     {service.network}")
+    typer.echo(f"Limits      {memory} MB of memory, {cpus:g} CPUs")
