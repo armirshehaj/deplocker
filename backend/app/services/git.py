@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import os
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -15,6 +16,14 @@ class RepositoryNotFoundError(GitError):
 
 class BranchNotFoundError(GitError):
     """The repository has no branch of the requested name."""
+
+
+@dataclass(frozen=True)
+class Commit:
+    """The commit a working tree is checked out at."""
+
+    hash: str
+    subject: str
 
 
 class GitService:
@@ -59,6 +68,15 @@ class GitService:
         if returncode != 0:
             raise GitError(f"Clone failed: {stderr}")
         return destination
+
+    async def read_head_commit(self, repository: Path) -> Commit:
+        returncode, stdout, stderr = await self._git(
+            "-C", str(repository), "log", "-1", "--format=%H%x00%s"
+        )
+        if returncode != 0:
+            raise GitError(f"Reading the commit failed: {stderr}")
+        commit_hash, subject = stdout.split("\0", 1)
+        return Commit(hash=commit_hash, subject=subject)
 
     async def _git(self, *args: str) -> tuple[int, str, str]:
         process = await asyncio.create_subprocess_exec(

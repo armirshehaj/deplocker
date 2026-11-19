@@ -6,6 +6,7 @@ import pytest
 
 from app.services.git import (
     BranchNotFoundError,
+    GitError,
     GitService,
     RepositoryNotFoundError,
 )
@@ -105,3 +106,61 @@ async def test_clone_repository_over_a_protocol_not_allowed(
         await GitService().clone_repository(
             f"file://{repository}", "main", tmp_path / "clone"
         )
+
+
+@pytest.mark.anyio
+async def test_read_head_commit(repository: Path) -> None:
+    commit = await GitService().read_head_commit(repository)
+
+    assert commit.hash == git(repository, "rev-parse", "HEAD")
+    assert commit.subject == "Serve the API over HTTPS"
+
+
+@pytest.mark.anyio
+async def test_read_head_commit_of_a_shallow_clone(
+    repository: Path, tmp_path: Path
+) -> None:
+    git(repository, "commit", "--quiet", "--allow-empty", "--message=Add a healthcheck")
+    service = GitService(allowed_protocols=("file",))
+
+    clone = await service.clone_repository(
+        f"file://{repository}", "main", tmp_path / "clone"
+    )
+    commit = await service.read_head_commit(clone)
+
+    assert commit.hash == git(repository, "rev-parse", "HEAD")
+    assert commit.subject == "Add a healthcheck"
+
+
+@pytest.mark.anyio
+async def test_read_head_commit_beside_a_file_named_head(repository: Path) -> None:
+    (repository / "HEAD").write_text("A tenant's file, not a revision\n")
+    git(repository, "add", "HEAD")
+    git(repository, "commit", "--quiet", "--message=Add a file named HEAD")
+
+    commit = await GitService().read_head_commit(repository)
+
+    assert commit.subject == "Add a file named HEAD"
+
+
+@pytest.mark.anyio
+async def test_read_head_commit_with_an_empty_message(repository: Path) -> None:
+    git(
+        repository,
+        "commit",
+        "--quiet",
+        "--allow-empty",
+        "--allow-empty-message",
+        "--message=",
+    )
+
+    commit = await GitService().read_head_commit(repository)
+
+    assert commit.hash == git(repository, "rev-parse", "HEAD")
+    assert commit.subject == ""
+
+
+@pytest.mark.anyio
+async def test_read_head_commit_outside_a_repository(tmp_path: Path) -> None:
+    with pytest.raises(GitError):
+        await GitService().read_head_commit(tmp_path)

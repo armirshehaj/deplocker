@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.deployments import DeploymentModel
+from app.services.git import Commit
 from app.utils.organizations.membership import (
     get_member_application,
     get_member_deployment,
@@ -32,6 +33,11 @@ class DeploymentService:
     async def get_all_deployments(self, user_id: int) -> Sequence[DeploymentModel]:
         result = await self.db_session.execute(select_member_deployments(user_id))
         return result.scalars().all()
+
+    async def record_commit(self, deployment: DeploymentModel, commit: Commit) -> None:
+        deployment.commit_hash = commit.hash
+        deployment.commit_subject = commit.subject
+        await self.db_session.commit()
 
     async def delete_deployment(self, deployment: DeploymentModel) -> None:
         await self.db_session.delete(deployment)
