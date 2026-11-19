@@ -1,4 +1,5 @@
 import time
+import uuid
 from pathlib import Path
 from typing import Annotated
 
@@ -7,6 +8,7 @@ import typer
 from app.core.conf import settings
 from app.services.docker import DockerError, DockerService
 from app.utils.cli.commands import async_command
+from app.utils.docker.names import image_tag as tag_for
 
 app = typer.Typer(help="Run the Docker service's operations.", no_args_is_help=True)
 
@@ -89,3 +91,19 @@ async def build(
     typer.echo(f"Image       {image.tag}")
     typer.echo(f"ID          {image.id}")
     typer.echo(f"Took        {elapsed:.1f}s")
+
+
+@app.command()
+def image_tag(
+    application_id: Annotated[uuid.UUID, typer.Argument(help="The application's id.")],
+    commit_hash: Annotated[str, typer.Argument(help="The commit's full hash.")],
+) -> None:
+    """Show the tag the platform gives the image an application builds from a
+    commit."""
+    try:
+        tag = tag_for(application_id, commit_hash)
+    except ValueError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(tag)

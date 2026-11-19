@@ -105,6 +105,8 @@ Builds don't go through docker-py, which drives only Docker's deprecated classic
 
 The deployed applications share one network, named by `DOCKER_NETWORK` (`deplocker-net`). `docker-compose.yml` declares it under that fixed name and attaches `api`; the API never creates it, only checks that it exists. The test stack declares its own, `deplocker-test-net`.
 
+An application's images take their names from its id, unique and fixed unlike its slugs, which repeat across organizations and change on rename: `image_tag` (`app/utils/docker/names.py`) tags the image built from a commit `deplocker-app-<application-id>:<commit-hash>`.
+
 ### Startup and migrations
 
 Alembic owns the schema. The container entrypoint (`scripts/entrypoint.sh`) runs `alembic upgrade head` before the app starts, and the FastAPI lifespan calls `ensure_schema_is_current` (`app/core/migrations.py`), which refuses to start unless the database is at the migration head — a stale schema fails loudly rather than being patched at runtime. It then asks the Docker daemon for its version, logs it, and likewise refuses to start when the daemon is out of reach or the deployed applications' network is missing. Alembic (`alembic/env.py`) imports all models explicitly and uses the same `DATABASE_URL` from `app.core.database`.
