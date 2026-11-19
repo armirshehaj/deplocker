@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # declares
     DOCKER_NETWORK: str = "deplocker-net"
 
+    # How long building an application's image may take, which guards the
+    # server's time
+    DOCKER_BUILD_TIMEOUT_SECONDS: float = 900
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def FRONTEND_URL(self) -> str:

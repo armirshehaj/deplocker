@@ -101,6 +101,8 @@ The stack runs no task queue or worker. One comes with the first feature that ne
 
 `DockerService` (`app/services/docker.py`) builds images and runs containers on the host's Docker daemon, which the api container reaches through the socket the compose files mount. Its docker-py calls share one client, `get_docker_client` (`app/core/docker.py`), created on first use because creating it already contacts the daemon. docker-py blocks for the whole of each call, so `_call` runs every one in a worker thread. A daemon out of reach, on connecting or mid-call, raises `DockerUnavailableError`.
 
+Builds don't go through docker-py, which drives only Docker's deprecated classic builder: `build_image` runs `docker buildx build` as a subprocess, so BuildKit features such as `RUN --mount` work. Each line of output reaches a callback as it arrives. A failure raises `BuildError` with the last lines of output, and a build that outlasts `DOCKER_BUILD_TIMEOUT_SECONDS` raises `BuildTimeoutError`. The command runs in a process group of its own, killed whole on a timeout or cancellation, and the daemon cancels a build whose client is gone.
+
 The deployed applications share one network, named by `DOCKER_NETWORK` (`deplocker-net`). `docker-compose.yml` declares it under that fixed name and attaches `api`; the API never creates it, only checks that it exists. The test stack declares its own, `deplocker-test-net`.
 
 ### Startup and migrations
