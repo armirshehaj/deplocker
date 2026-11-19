@@ -1,7 +1,8 @@
 import asyncio
 import contextlib
+import time
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
 
 import docker
@@ -28,6 +29,19 @@ RUN mkdir /www && echo hello from deplocker > /www/index.html
 CMD ["httpd", "-f", "-p", "8000", "-h", "/www"]
 """
 
+# A process that exits on SIGTERM, and says when it listens for it
+EXITS_ON_SIGTERM = """\
+FROM busybox:1.36
+CMD ["sh", "-c", "trap 'exit 0' TERM; echo ready; while true; do sleep 0.1; done"]
+"""
+
+# A process that ignores SIGTERM: a container's first process receives no signal
+# it has no handler for
+IGNORES_SIGTERM = """\
+FROM busybox:1.36
+CMD ["sleep", "300"]
+"""
+
 LIMITS = ResourceLimits(memory_mb=64, cpus=0.5)
 
 
@@ -41,14 +55,36 @@ def application_id() -> Iterator[uuid.UUID]:
 
 
 @pytest.fixture
-async def web_server(tmp_path: Path) -> AsyncIterator[str]:
-    """The tag of a web server's image, built for the test and removed after it."""
-    (tmp_path / "Dockerfile").write_text(WEB_SERVER)
-    tag = f"deplocker-test-web-{uuid.uuid4().hex[:12]}"
-    await DockerService().build_image(tmp_path, tmp_path / "Dockerfile", tag)
-    yield tag
-    with contextlib.suppress(ImageNotFound):
-        docker.from_env().images.remove(tag, force=True)
+async def build(tmp_path: Path) -> AsyncIterator[Callable[[str], Awaitable[str]]]:
+    """Builds a Dockerfile, given as text, into an image for the test and returns
+    the image's tag. The images are removed afterwards."""
+    tags: list[str] = []
+
+    async def build_image(dockerfile: str) -> str:
+        context = tmp_path / f"context-{len(tags)}"
+        context.mkdir()
+        (context / "Dockerfile").write_text(dockerfile)
+        tag = f"deplocker-test-{uuid.uuid4().hex[:12]}"
+        await DockerService().build_image(context, context / "Dockerfile", tag)
+        tags.append(tag)
+        return tag
+
+    yield build_image
+    for tag in tags:
+        with contextlib.suppress(ImageNotFound):
+            docker.from_env().images.remove(tag, force=True)
+
+
+@pytest.fixture
+async def web_server(build: Callable[[str], Awaitable[str]]) -> str:
+    """The tag of a web server's image."""
+    return await build(WEB_SERVER)
+
+
+def state_of(application_id: uuid.UUID) -> dict:
+    """The state the daemon reports for an application's container."""
+    container = docker.from_env().containers.get(container_name(application_id))
+    return dict(container.attrs["State"])
 
 
 async def fetch(url: str) -> str:
@@ -119,3 +155,59 @@ async def test_container_of_a_missing_image(application_id: uuid.UUID) -> None:
 
     with pytest.raises(NotFound):
         docker.from_env().containers.get(container_name(application_id))
+
+
+async def test_stop_lets_the_container_exit_on_its_signal(
+    application_id: uuid.UUID, build: Callable[[str], Awaitable[str]]
+) -> None:
+    service = DockerService(stop_timeout=10)
+    await service.run_container(
+        application_id, await build(EXITS_ON_SIGTERM), {}, LIMITS
+    )
+    container = docker.from_env().containers.get(container_name(application_id))
+    for _ in range(50):
+        if b"ready" in container.logs():
+            break
+        await asyncio.sleep(0.1)
+
+    started = time.monotonic()
+    assert await service.stop_container(application_id)
+
+    assert time.monotonic() - started < 5
+    assert state_of(application_id)["Status"] == "exited"
+    assert state_of(application_id)["ExitCode"] == 0
+
+
+async def test_stop_kills_a_container_past_its_grace_period(
+    application_id: uuid.UUID, build: Callable[[str], Awaitable[str]]
+) -> None:
+    service = DockerService(stop_timeout=1)
+    await service.run_container(
+        application_id, await build(IGNORES_SIGTERM), {}, LIMITS
+    )
+
+    started = time.monotonic()
+    assert await service.stop_container(application_id)
+
+    assert time.monotonic() - started >= 1
+    # 128 plus the number of SIGKILL
+    assert state_of(application_id)["ExitCode"] == 137
+
+
+async def test_remove_container(application_id: uuid.UUID, web_server: str) -> None:
+    service = DockerService(stop_timeout=1)
+    await service.run_container(application_id, web_server, {}, LIMITS)
+
+    assert await service.remove_container(application_id)
+
+    with pytest.raises(NotFound):
+        docker.from_env().containers.get(container_name(application_id))
+
+
+async def test_stop_and_remove_without_a_container(
+    application_id: uuid.UUID,
+) -> None:
+    service = DockerService()
+
+    assert not await service.stop_container(application_id)
+    assert not await service.remove_container(application_id)

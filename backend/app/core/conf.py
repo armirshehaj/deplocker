@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     DOCKER_MEMORY_LIMIT_MB: int = 512
     DOCKER_CPU_LIMIT: float = 1.0
 
+    # How long a stopping container has to exit after SIGTERM before it is killed
+    DOCKER_STOP_TIMEOUT_SECONDS: int = 10
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def FRONTEND_URL(self) -> str:

@@ -111,6 +111,8 @@ An application's images and container take their names from its id, unique and f
 
 A container uses no more than its `ResourceLimits`: memory, with no swap beyond it, and a number of the host's CPUs. Each application records its own limits, `memory_limit_mb` and `cpu_limit`, from `DOCKER_MEMORY_LIMIT_MB` and `DOCKER_CPU_LIMIT` when it is created. The API returns them but does not accept them, so a tenant cannot raise its own.
 
+`stop_container` sends a container its stop signal, SIGTERM unless its image names another, and kills it if it has not exited `DOCKER_STOP_TIMEOUT_SECONDS` later; `remove_container` stops it that way, then removes it. Both return whether the application had a container, so one already gone is not an error.
+
 ### Startup and migrations
 
 Alembic owns the schema. The container entrypoint (`scripts/entrypoint.sh`) runs `alembic upgrade head` before the app starts, and the FastAPI lifespan calls `ensure_schema_is_current` (`app/core/migrations.py`), which refuses to start unless the database is at the migration head — a stale schema fails loudly rather than being patched at runtime. It then asks the Docker daemon for its version, logs it, and likewise refuses to start when the daemon is out of reach or the deployed applications' network is missing. Alembic (`alembic/env.py`) imports all models explicitly and uses the same `DATABASE_URL` from `app.core.database`.

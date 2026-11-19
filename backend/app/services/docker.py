@@ -92,9 +92,11 @@ class DockerService:
         self,
         network: str = settings.DOCKER_NETWORK,
         build_timeout: float = settings.DOCKER_BUILD_TIMEOUT_SECONDS,
+        stop_timeout: int = settings.DOCKER_STOP_TIMEOUT_SECONDS,
     ) -> None:
         self.network = network
         self.build_timeout = build_timeout
+        self.stop_timeout = stop_timeout
 
     async def daemon_version(self) -> str:
         """The version of the daemon the platform builds and runs on."""
@@ -201,6 +203,41 @@ class DockerService:
                 ) from error
             raise
         return Container(id=str(container.id), name=name)
+
+    async def stop_container(self, application_id: uuid.UUID) -> bool:
+        """Stops an application's container: it receives its stop signal, SIGTERM
+        unless its image names another, and is killed if it has not exited
+        `stop_timeout` seconds later. Returns whether the application had a
+        container."""
+
+        def stop(client: DockerClient) -> None:
+            client.containers.get(container_name(application_id)).stop(
+                timeout=self.stop_timeout
+            )
+
+        return await self._on_container(stop)
+
+    async def remove_container(self, application_id: uuid.UUID) -> bool:
+        """Stops an application's container as `stop_container` does, then removes
+        it. Returns whether the application had a container; one already gone is
+        not an error."""
+
+        def remove(client: DockerClient) -> None:
+            container = client.containers.get(container_name(application_id))
+            container.stop(timeout=self.stop_timeout)
+            container.remove()
+
+        return await self._on_container(remove)
+
+    async def _on_container(self, operation: Callable[[DockerClient], None]) -> bool:
+        """Runs `operation` on an application's container, and returns whether the
+        container existed: absent when the operation starts, or gone before it
+        ends."""
+        try:
+            await self._call(operation)
+        except NotFound:
+            return False
+        return True
 
     async def _build(
         self,

@@ -7,7 +7,16 @@ from app.cli import app
 
 
 @pytest.mark.usefixtures("unreachable_daemon")
-@pytest.mark.parametrize("command", [["version"], ["network"], ["run", "busybox:1.36"]])
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["version"],
+        ["network"],
+        ["run", "busybox:1.36"],
+        ["stop", "0b3e9c4e-5f1a-4c2b-9d7e-8a6f5b4c3d2e"],
+        ["remove", "0b3e9c4e-5f1a-4c2b-9d7e-8a6f5b4c3d2e"],
+    ],
+)
 def test_command_without_a_daemon(command: list[str]) -> None:
     result = CliRunner().invoke(app, ["docker", *command])
 

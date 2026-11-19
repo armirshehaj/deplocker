@@ -8,9 +8,20 @@ import typer
 from app.core.conf import settings
 from app.services.docker import DockerError, DockerService, ResourceLimits
 from app.utils.cli.commands import async_command
+from app.utils.docker.names import container_name
 from app.utils.docker.names import image_tag as tag_for
 
 app = typer.Typer(help="Run the Docker service's operations.", no_args_is_help=True)
+
+# The grace period of the commands that stop a container
+StopTimeout = Annotated[
+    int,
+    typer.Option(
+        min=0,
+        help="Kill the container if it has not exited this many seconds after "
+        "its stop signal.",
+    ),
+]
 
 
 @app.command()
@@ -164,3 +175,42 @@ async def run(
     typer.echo(f"ID          {container.id}")
     typer.echo(f"Network     {service.network}")
     typer.echo(f"Limits      {memory} MB of memory, {cpus:g} CPUs")
+
+
+@app.command()
+@async_command
+async def stop(
+    application_id: Annotated[uuid.UUID, typer.Argument(help="The application's id.")],
+    timeout: StopTimeout = settings.DOCKER_STOP_TIMEOUT_SECONDS,
+) -> None:
+    """Stop an application's container as the platform does: its stop signal
+    first, and a kill if it does not exit in time."""
+    try:
+        stopped = await DockerService(stop_timeout=timeout).stop_container(
+            application_id
+        )
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    name = container_name(application_id)
+    typer.echo(f"Stopped {name}" if stopped else f"No container {name}")
+
+
+@app.command()
+@async_command
+async def remove(
+    application_id: Annotated[uuid.UUID, typer.Argument(help="The application's id.")],
+    timeout: StopTimeout = settings.DOCKER_STOP_TIMEOUT_SECONDS,
+) -> None:
+    """Stop an application's container as `stop` does, then remove it."""
+    try:
+        removed = await DockerService(stop_timeout=timeout).remove_container(
+            application_id
+        )
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    name = container_name(application_id)
+    typer.echo(f"Removed {name}" if removed else f"No container {name}")
