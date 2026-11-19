@@ -1,11 +1,15 @@
-FROM python:3.14.5-slim AS base
+# Python 3.14 on Debian 13, rebuilt for each Python patch and each update of the
+# Debian image; a patch-version tag stops being rebuilt once the next patch ships
+FROM python:3.14-slim-trixie AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
-# curl runs the api healthcheck; git clones the repositories deployments build from
+# curl runs the api healthcheck; git clones the repositories deployments build from;
+# uv installs every Python package, so pip is removed
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl git \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip uninstall -y pip
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
