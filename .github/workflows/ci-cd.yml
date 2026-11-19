@@ -8,7 +8,9 @@ on:
 jobs:
   ci:
     name: Build & Test
-    runs-on: self-hosted
+    # GitHub's runners, unless the repository variable CI_RUNNER names others,
+    # such as self-hosted for the production server
+    runs-on: ${{vars.CI_RUNNER || 'ubuntu-latest'}}
     permissions:
       packages: write
       contents: read
@@ -77,9 +79,10 @@ jobs:
   cd:
     name: Deploy to production
     runs-on: self-hosted
-    # Deploys only a commit whose ci job passed
+    # Deploys only a master commit whose ci job passed, and only while ci runs
+    # on the production server
     needs: ci
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master' && vars.CI_RUNNER == 'self-hosted'
     permissions:
       contents: read
     steps:
