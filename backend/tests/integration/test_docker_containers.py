@@ -14,6 +14,8 @@ from app.core.conf import settings
 from app.services.docker import (
     APPLICATION_LABEL,
     ContainerNameTakenError,
+    ContainerState,
+    ContainerStatus,
     DockerService,
     ImageNotFoundError,
     ResourceLimits,
@@ -33,6 +35,18 @@ CMD ["httpd", "-f", "-p", "8000", "-h", "/www"]
 EXITS_ON_SIGTERM = """\
 FROM busybox:1.36
 CMD ["sh", "-c", "trap 'exit 0' TERM; echo ready; while true; do sleep 0.1; done"]
+"""
+
+# A process that writes 50 numbered lines, then waits
+WRITES_LINES = """\
+FROM busybox:1.36
+CMD ["sh", "-c", "for i in $(seq 1 50); do echo line $i; done; sleep 300"]
+"""
+
+# A process that fails as soon as it starts
+FAILS = """\
+FROM busybox:1.36
+CMD ["sh", "-c", "exit 3"]
 """
 
 # A process that ignores SIGTERM: a container's first process receives no signal
@@ -211,3 +225,69 @@ async def test_stop_and_remove_without_a_container(
 
     assert not await service.stop_container(application_id)
     assert not await service.remove_container(application_id)
+
+
+async def test_status_of_a_running_container(
+    application_id: uuid.UUID, web_server: str
+) -> None:
+    service = DockerService()
+    await service.run_container(application_id, web_server, {}, LIMITS)
+
+    assert await service.container_status(application_id) == ContainerStatus(
+        ContainerState.RUNNING
+    )
+
+
+async def test_status_of_a_stopped_container(
+    application_id: uuid.UUID, build: Callable[[str], Awaitable[str]]
+) -> None:
+    service = DockerService(stop_timeout=0)
+    await service.run_container(
+        application_id, await build(IGNORES_SIGTERM), {}, LIMITS
+    )
+    await service.stop_container(application_id)
+
+    assert await service.container_status(application_id) == ContainerStatus(
+        ContainerState.STOPPED, exit_code=137
+    )
+
+
+async def test_status_of_a_crashing_container(
+    application_id: uuid.UUID, build: Callable[[str], Awaitable[str]]
+) -> None:
+    service = DockerService()
+    await service.run_container(application_id, await build(FAILS), {}, LIMITS)
+
+    for _ in range(100):
+        status = await service.container_status(application_id)
+        if status.state is ContainerState.RESTARTING:
+            break
+        await asyncio.sleep(0.1)
+
+    assert status.state is ContainerState.RESTARTING
+    assert status.exit_code == 3
+
+
+async def test_status_without_a_container(application_id: uuid.UUID) -> None:
+    assert await DockerService().container_status(application_id) == ContainerStatus(
+        ContainerState.MISSING
+    )
+
+
+async def test_log_tail(
+    application_id: uuid.UUID, build: Callable[[str], Awaitable[str]]
+) -> None:
+    service = DockerService()
+    await service.run_container(application_id, await build(WRITES_LINES), {}, LIMITS)
+
+    for _ in range(50):
+        tail = await service.container_logs(application_id, 5)
+        if tail and tail[-1] == "line 50":
+            break
+        await asyncio.sleep(0.1)
+
+    assert tail == [f"line {number}" for number in range(46, 51)]
+
+
+async def test_log_tail_without_a_container(application_id: uuid.UUID) -> None:
+    assert await DockerService().container_logs(application_id, 5) is None

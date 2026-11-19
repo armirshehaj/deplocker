@@ -6,7 +6,13 @@ from typing import Annotated
 import typer
 
 from app.core.conf import settings
-from app.services.docker import DockerError, DockerService, ResourceLimits
+from app.services.docker import (
+    LOG_TAIL_MAX_LINES,
+    ContainerState,
+    DockerError,
+    DockerService,
+    ResourceLimits,
+)
 from app.utils.cli.commands import async_command
 from app.utils.docker.names import container_name
 from app.utils.docker.names import image_tag as tag_for
@@ -214,3 +220,57 @@ async def remove(
 
     name = container_name(application_id)
     typer.echo(f"Removed {name}" if removed else f"No container {name}")
+
+
+@app.command()
+@async_command
+async def status(
+    application_id: Annotated[uuid.UUID, typer.Argument(help="The application's id.")],
+) -> None:
+    """Show the state of an application's container as the platform reads it."""
+    try:
+        container = await DockerService().container_status(application_id)
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"Container   {container_name(application_id)}")
+    typer.echo(f"State       {container.state.value}")
+    if container.exit_code is not None:
+        typer.echo(f"Exit code   {container.exit_code}")
+    if container.state is not ContainerState.MISSING:
+        typer.echo(f"Restarts    {container.restart_count}")
+
+
+@app.command()
+@async_command
+async def logs(
+    application_id: Annotated[uuid.UUID, typer.Argument(help="The application's id.")],
+    lines: Annotated[
+        int,
+        typer.Option(
+            "--lines",
+            "-n",
+            min=1,
+            max=LOG_TAIL_MAX_LINES,
+            help="How many of the last lines to show.",
+        ),
+    ] = 100,
+) -> None:
+    """Show the last lines an application's container wrote to its output and
+    error streams."""
+    try:
+        output = await DockerService().container_logs(application_id, lines)
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    if output is None:
+        typer.secho(
+            f"No container {container_name(application_id)}",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(1)
+    for line in output:
+        typer.echo(line)

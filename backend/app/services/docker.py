@@ -7,6 +7,7 @@ import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,9 @@ BUILD_OUTPUT_TAIL_LINES = 20
 
 # Marks each container the platform runs with the application it serves
 APPLICATION_LABEL = "deplocker.application"
+
+# The most lines of a container's output a log tail returns
+LOG_TAIL_MAX_LINES = 1000
 
 
 class DockerError(Exception):
@@ -83,6 +87,39 @@ class Container:
 
     id: str
     name: str
+
+
+class ContainerState(Enum):
+    """Where an application's container stands."""
+
+    RUNNING = "running"
+    # Exited, and about to start again under its restart policy
+    RESTARTING = "restarting"
+    STOPPED = "stopped"
+    MISSING = "missing"
+
+
+# The platform's reading of each state Docker reports for a container
+DOCKER_STATES = {
+    "created": ContainerState.STOPPED,
+    "running": ContainerState.RUNNING,
+    "paused": ContainerState.STOPPED,
+    "restarting": ContainerState.RESTARTING,
+    "removing": ContainerState.STOPPED,
+    "exited": ContainerState.STOPPED,
+    "dead": ContainerState.STOPPED,
+}
+
+
+@dataclass(frozen=True)
+class ContainerStatus:
+    """An application's container as the daemon reports it: its state, the exit
+    code of its last run once that run has ended, and how many times its
+    restart policy has started it again."""
+
+    state: ContainerState
+    exit_code: int | None = None
+    restart_count: int = 0
 
 
 class DockerService:
@@ -228,6 +265,50 @@ class DockerService:
             container.remove()
 
         return await self._on_container(remove)
+
+    async def container_status(self, application_id: uuid.UUID) -> ContainerStatus:
+        """The status of an application's container, whose state is MISSING when
+        the application has none."""
+
+        def inspect(client: DockerClient) -> Any:
+            try:
+                return client.containers.get(container_name(application_id)).attrs
+            except NotFound:
+                return None
+
+        attributes = await self._call(inspect)
+        if attributes is None:
+            return ContainerStatus(ContainerState.MISSING)
+        state = DOCKER_STATES[attributes["State"]["Status"]]
+        return ContainerStatus(
+            state=state,
+            exit_code=(
+                None
+                if state is ContainerState.RUNNING
+                else int(attributes["State"]["ExitCode"])
+            ),
+            restart_count=int(attributes["RestartCount"]),
+        )
+
+    async def container_logs(
+        self, application_id: uuid.UUID, lines: int
+    ) -> list[str] | None:
+        """The last `lines` lines, `LOG_TAIL_MAX_LINES` at most, that an
+        application's container wrote to its output and error streams. None when
+        the application has no container."""
+
+        def read(client: DockerClient) -> Any:
+            try:
+                container = client.containers.get(container_name(application_id))
+            except NotFound:
+                return None
+            return container.logs(tail=max(1, min(lines, LOG_TAIL_MAX_LINES)))
+
+        output = await self._call(read)
+        if output is None:
+            return None
+        text: str = output.decode(errors="replace")
+        return text.splitlines()
 
     async def _on_container(self, operation: Callable[[DockerClient], None]) -> bool:
         """Runs `operation` on an application's container, and returns whether the
