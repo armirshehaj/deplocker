@@ -23,10 +23,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - default
-      - deplocker-test-net
+      - deplocker-net
     environment:
-      # The network the tests' containers join, apart from the dev stack's
-      DOCKER_NETWORK: deplocker-test-net
+      # The network the tests' containers join: this project's own, which
+      # Compose names after the project
+      DOCKER_NETWORK: ${COMPOSE_PROJECT_NAME}_deplocker-net
 
       # Postgres — points at the ephemeral ci-postgres below, not the dev instance.
       POSTGRES_USER: postgres
@@ -95,5 +96,7 @@ services:
       start_period: 10s
 
 networks:
-  deplocker-test-net:
-    name: deplocker-test-net
+  # Unlike the dev stack's, named per project: the migrations check runs this
+  # file under a project name of its own, and neither stack may remove the
+  # other's network
+  deplocker-net: {}

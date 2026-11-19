@@ -103,7 +103,7 @@ The stack runs no task queue or worker. One comes with the first feature that ne
 
 Builds don't go through docker-py, which drives only Docker's deprecated classic builder: `build_image` runs `docker buildx build` as a subprocess, so BuildKit features such as `RUN --mount` work. Each line of output reaches a callback as it arrives. A failure raises `BuildError` with the last lines of output, and a build that outlasts `DOCKER_BUILD_TIMEOUT_SECONDS` raises `BuildTimeoutError`. The command runs in a process group of its own, killed whole on a timeout or cancellation, and the daemon cancels a build whose client is gone.
 
-The deployed applications share one network, named by `DOCKER_NETWORK` (`deplocker-net`). `docker-compose.yml` declares it under that fixed name and attaches `api`; the API never creates it, only checks that it exists. The test stack declares its own, `deplocker-test-net`.
+The deployed applications share one network, named by `DOCKER_NETWORK` (`deplocker-net`). `docker-compose.yml` declares it under that fixed name and attaches `api`; the API never creates it, only checks that it exists. The test stack declares one per Compose project, which Compose names `<project>_deplocker-net`, since the migrations check runs that file under a project name of its own.
 
 An application's images and container take their names from its id, unique and fixed unlike its slugs, which repeat across organizations and change on rename (`app/utils/docker/names.py`): `image_tag` tags the image built from a commit `deplocker-app-<application-id>:<commit-hash>`, and `container_name` names its container `deplocker-app-<application-id>`.
 
