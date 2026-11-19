@@ -282,8 +282,9 @@ gh variable delete CI_RUNNER                   # build and test on GitHub's runn
 1. Checks each part the push changed. Frontend: lint, type check, tests.
    Backend: lint, type check, a check that the migrations match the models,
    and tests. A new branch or a force push checks both.
-2. Removes the backend test stack, even after a failed check, since a
-   self-hosted runner reuses its workspace for the next run.
+2. Removes the backend test stack, even after a failed check, along with any
+   container or image the Docker tests left behind, since a self-hosted runner
+   reuses its workspace and its Docker daemon for the next run.
 3. Builds the `api` and `ui` images and publishes them to the GitHub Container
    Registry, tagged with the commit SHA and `latest`.
 

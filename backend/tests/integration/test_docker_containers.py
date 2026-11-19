@@ -24,11 +24,12 @@ from app.utils.docker.names import container_name
 
 pytestmark = [pytest.mark.docker, pytest.mark.anyio]
 
-# A web server answering on port 8000 with a page of its own
+# A web server answering on port 8000 with a page of its own, which says when it
+# starts serving
 WEB_SERVER = """\
 FROM busybox:1.36
 RUN mkdir /www && echo hello from deplocker > /www/index.html
-CMD ["httpd", "-f", "-p", "8000", "-h", "/www"]
+CMD ["sh", "-c", "echo serving on port 8000; exec httpd -f -p 8000 -h /www"]
 """
 
 # A process that exits on SIGTERM, and says when it listens for it
@@ -109,6 +110,26 @@ async def fetch(url: str) -> str:
                 return (await client.get(url)).text
             await asyncio.sleep(0.1)
     raise AssertionError(f"{url} never answered")
+
+
+async def test_lifecycle_of_an_application_container(
+    application_id: uuid.UUID, web_server: str
+) -> None:
+    service = DockerService(stop_timeout=1)
+
+    container = await service.run_container(application_id, web_server, {}, LIMITS)
+    status = await service.container_status(application_id)
+    page = await fetch(f"http://{container.name}:8000/")
+    tail = await service.container_logs(application_id, 10)
+    removed = await service.remove_container(application_id)
+
+    assert status.state is ContainerState.RUNNING
+    assert page == "hello from deplocker\n"
+    assert tail == ["serving on port 8000"]
+    assert removed
+    assert (
+        await service.container_status(application_id)
+    ).state is ContainerState.MISSING
 
 
 async def test_container_answers_by_name_on_the_network(

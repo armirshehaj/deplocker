@@ -26,6 +26,9 @@ UV                := $(shell which uv)
 COMPOSE_DEV_FILE   = docker-compose.yml
 COMPOSE_PROD_FILE  = docker-compose.prod.yml
 COMPOSE_TEST_FILE  = docker-compose.test.yml
+# The test stack's network, which Compose names after its project, and which the
+# containers of the Docker tests join
+COMPOSE_TEST_NETWORK = deplocker-test_deplocker-net
 
 # The server's configuration, which also supplies Caddy's site addresses
 PROD_ENV_FILE      = /etc/deplocker/.env
@@ -144,8 +147,12 @@ backend-test-ci:
 		--exit-code-from api \
 		--abort-on-container-exit
 
-## Tear the test stack down, volumes and stragglers included
+## Tear the test stack down, volumes and stragglers included, with the
+## containers and images the Docker tests leave behind when a run is cut short
 backend-clean-ci:
+	$(D) ps -aq --filter network=$(COMPOSE_TEST_NETWORK) | xargs -r $(D) rm -f
+	$(D) images --filter 'reference=deplocker-test-*' --format '{{.Repository}}:{{.Tag}}' \
+		| xargs -r $(D) rmi -f
 	$(DC) -f $(COMPOSE_TEST_FILE) down -v --remove-orphans
 
 ## Build the shippable image from the production stage, which installs without
