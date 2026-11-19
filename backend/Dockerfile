@@ -11,17 +11,23 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
+# The virtual environment's commands, deplocker among them, run by name
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Dependencies install ahead of the source, so code changes don't reinstall them
 COPY pyproject.toml uv.lock ./
 
 FROM base AS test
-RUN uv sync --frozen
+RUN uv sync --frozen --no-install-project
 COPY . .
+RUN uv sync --frozen
 CMD ["uv", "run", "pytest", "tests/", "-v"]
 
 
 FROM base AS production
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
+RUN uv sync --frozen --no-dev
 EXPOSE 8080
 ENTRYPOINT ["sh", "./scripts/entrypoint.sh" ]
 # Caddy serves the API under /api; the root path makes the docs page fetch its
