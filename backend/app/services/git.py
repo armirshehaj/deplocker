@@ -1,9 +1,12 @@
 import asyncio
 import contextlib
 import os
-from collections.abc import Sequence
+import signal
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from app.core.conf import settings
 
 
 class GitError(Exception):
@@ -26,6 +29,18 @@ class DockerfileOutsideRepositoryError(GitError):
     """The Dockerfile path leads out of the repository."""
 
 
+class CloneTimeoutError(GitError):
+    """The clone took longer than it is allowed."""
+
+
+class RepositoryTooLargeError(GitError):
+    """The repository fills more space than it is allowed."""
+
+
+# How often, in seconds, a download's size on disk is checked against the limit
+SIZE_CHECK_INTERVAL = 0.5
+
+
 @dataclass(frozen=True)
 class Commit:
     """The commit a working tree is checked out at."""
@@ -35,7 +50,14 @@ class Commit:
 
 
 class GitService:
-    def __init__(self, allowed_protocols: Sequence[str] = ("https",)) -> None:
+    def __init__(
+        self,
+        allowed_protocols: Sequence[str] = ("https",),
+        clone_timeout: float = settings.GIT_CLONE_TIMEOUT_SECONDS,
+        max_repository_size_mb: float = settings.GIT_MAX_REPOSITORY_SIZE_MB,
+    ) -> None:
+        self.clone_timeout = clone_timeout
+        self.max_repository_size_mb = max_repository_size_mb
         self.env = {
             **os.environ,
             # Keeps a tenant's URL from reaching repositories on the server's disk
@@ -51,6 +73,18 @@ class GitService:
     async def clone_repository(
         self, url: str, branch: str, destination: Path, depth: int = 1
     ) -> Path:
+        try:
+            async with asyncio.timeout(self.clone_timeout):
+                await self._clone(url, branch, destination, depth)
+        except TimeoutError as error:
+            raise CloneTimeoutError(
+                f"Clone took longer than {self.clone_timeout:g}s"
+            ) from error
+        return destination
+
+    async def _clone(
+        self, url: str, branch: str, destination: Path, depth: int
+    ) -> None:
         # Under --exit-code, ls-remote exits with 2 when no branch matches
         returncode, _, stderr = await self._git(
             "ls-remote", "--exit-code", "--", url, f"refs/heads/{branch}"
@@ -62,20 +96,70 @@ class GitService:
                 f"Repository not found or not accessible: {stderr}"
             )
 
-        returncode, _, stderr = await self._git(
-            "clone",
-            "--quiet",
-            "--depth",
-            str(depth),
-            "--branch",
-            branch,
-            "--",
-            url,
-            str(destination),
+        # The files are written only once their size is known to fit: content
+        # that compresses well makes them far larger than the download
+        returncode, _, stderr = await self._watching_size(
+            destination,
+            self._git(
+                "clone",
+                "--quiet",
+                "--no-checkout",
+                "--depth",
+                str(depth),
+                "--branch",
+                branch,
+                "--",
+                url,
+                str(destination),
+            ),
         )
         if returncode != 0:
             raise GitError(f"Clone failed: {stderr}")
-        return destination
+
+        returncode, stdout, stderr = await self._git(
+            "-C", str(destination), "ls-tree", "-r", "--format=%(objectsize)", "HEAD"
+        )
+        if returncode != 0:
+            raise GitError(f"Reading the size of the files failed: {stderr}")
+        # A submodule, which is not cloned, has no size
+        files_size = sum(int(size) for size in stdout.split() if size != "-")
+        history_size = await asyncio.to_thread(self._size_on_disk, destination)
+        self._check_size(history_size + files_size)
+
+        returncode, _, stderr = await self._git(
+            "-C", str(destination), "checkout", "--quiet"
+        )
+        if returncode != 0:
+            raise GitError(f"Checkout failed: {stderr}")
+
+    async def _watching_size[T](self, directory: Path, operation: Awaitable[T]) -> T:
+        """The result of `operation`, which is cancelled if `directory` grows past
+        the size limit while it runs."""
+        task = asyncio.ensure_future(operation)
+        try:
+            while not task.done():
+                await asyncio.wait({task}, timeout=SIZE_CHECK_INTERVAL)
+                self._check_size(await asyncio.to_thread(self._size_on_disk, directory))
+            return task.result()
+        finally:
+            task.cancel()
+            await asyncio.wait({task})
+
+    def _check_size(self, size: int) -> None:
+        if size > self.max_repository_size_mb * 1_000_000:
+            raise RepositoryTooLargeError(
+                f"Repository is larger than {self.max_repository_size_mb:g} MB"
+            )
+
+    @staticmethod
+    def _size_on_disk(directory: Path) -> int:
+        size = 0
+        for root, _, files in directory.walk():
+            for name in files:
+                # git renames and removes its temporary files as it goes
+                with contextlib.suppress(FileNotFoundError):
+                    size += (root / name).lstat().st_size
+        return size
 
     async def read_head_commit(self, repository: Path) -> Commit:
         returncode, stdout, stderr = await self._git(
@@ -109,12 +193,15 @@ class GitService:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=self.env,
+            # A process group of its own, so that a cancelled command's helpers,
+            # such as the one that downloads over HTTPS, stop along with it
+            start_new_session=True,
         )
         try:
             stdout, stderr = await process.communicate()
         except asyncio.CancelledError:
             with contextlib.suppress(ProcessLookupError):
-                process.kill()
+                os.killpg(process.pid, signal.SIGKILL)
             await process.wait()
             raise
         return (

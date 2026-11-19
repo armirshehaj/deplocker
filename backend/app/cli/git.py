@@ -4,6 +4,7 @@ from typing import Annotated
 
 import typer
 
+from app.core.conf import settings
 from app.services.git import GitError, GitService
 from app.utils.cli.commands import async_command
 from app.utils.deployments.workspace import deployment_workspace
@@ -29,6 +30,18 @@ async def clone(
             "repository's root, as a deployment does before it builds.",
         ),
     ] = None,
+    timeout: Annotated[
+        float,
+        typer.Option(min=0, help="Abort the clone after this many seconds."),
+    ] = settings.GIT_CLONE_TIMEOUT_SECONDS,
+    max_size: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            help="Abort the clone once the repository's history and files fill "
+            "more than this many MB.",
+        ),
+    ] = settings.GIT_MAX_REPOSITORY_SIZE_MB,
     into: Annotated[
         Path | None,
         typer.Option(
@@ -40,7 +53,7 @@ async def clone(
 ) -> None:
     """Clone a branch of a repository as the platform does, and show the commit it
     checked out."""
-    service = GitService()
+    service = GitService(clone_timeout=timeout, max_repository_size_mb=max_size)
     async with deployment_workspace() as workspace:
         destination = into or workspace / "repository"
         started = time.perf_counter()

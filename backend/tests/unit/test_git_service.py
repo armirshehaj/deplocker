@@ -1,16 +1,20 @@
+import asyncio
 import os
 import subprocess
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 
 from app.services.git import (
     BranchNotFoundError,
+    CloneTimeoutError,
     DockerfileNotFoundError,
     DockerfileOutsideRepositoryError,
     GitError,
     GitService,
     RepositoryNotFoundError,
+    RepositoryTooLargeError,
 )
 
 # Isolates the fixture repositories from the git configuration of the machine
@@ -108,6 +112,85 @@ async def test_clone_repository_over_a_protocol_not_allowed(
         await GitService().clone_repository(
             f"file://{repository}", "main", tmp_path / "clone"
         )
+
+
+@pytest.mark.anyio
+async def test_clone_repository_larger_than_allowed(
+    repository: Path, tmp_path: Path
+) -> None:
+    (repository / "assets.bin").write_bytes(os.urandom(2_000_000))
+    git(repository, "add", "assets.bin")
+    git(repository, "commit", "--quiet", "--message=Add the assets")
+    service = GitService(allowed_protocols=("file",), max_repository_size_mb=1)
+
+    with pytest.raises(RepositoryTooLargeError):
+        await service.clone_repository(
+            f"file://{repository}", "main", tmp_path / "clone"
+        )
+
+
+@pytest.mark.anyio
+async def test_clone_repository_whose_files_outgrow_the_download(
+    repository: Path, tmp_path: Path
+) -> None:
+    # Zeros compress to almost nothing, so the download stays small
+    (repository / "zeros.bin").write_bytes(bytes(5_000_000))
+    git(repository, "add", "zeros.bin")
+    git(repository, "commit", "--quiet", "--message=Add the zeros")
+    service = GitService(allowed_protocols=("file",), max_repository_size_mb=1)
+    destination = tmp_path / "clone"
+
+    with pytest.raises(RepositoryTooLargeError):
+        await service.clone_repository(f"file://{repository}", "main", destination)
+
+    assert not (destination / "zeros.bin").exists()
+
+
+@pytest.mark.anyio
+async def test_clone_repository_aborts_a_download_that_outgrows_the_limit(
+    tmp_path: Path,
+) -> None:
+    aborted = asyncio.Event()
+
+    async def download() -> None:
+        (tmp_path / "pack").write_bytes(bytes(2_000_000))
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            aborted.set()
+            raise
+
+    with pytest.raises(RepositoryTooLargeError):
+        await GitService(max_repository_size_mb=1)._watching_size(tmp_path, download())
+
+    assert aborted.is_set()
+
+
+@pytest.fixture()
+async def silent_server() -> AsyncIterator[str]:
+    """The URL of a repository whose server accepts connections and never
+    answers them."""
+
+    async def ignore(reader: asyncio.StreamReader, _: asyncio.StreamWriter) -> None:
+        await reader.read()
+
+    server = await asyncio.start_server(ignore, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    yield f"http://127.0.0.1:{port}/repository.git"
+    server.close()
+    # Times out while a git process that outlived the clone holds a connection
+    async with asyncio.timeout(5):
+        await server.wait_closed()
+
+
+@pytest.mark.anyio
+async def test_clone_repository_taking_longer_than_allowed(
+    silent_server: str, tmp_path: Path
+) -> None:
+    service = GitService(allowed_protocols=("http",), clone_timeout=0.5)
+
+    with pytest.raises(CloneTimeoutError):
+        await service.clone_repository(silent_server, "main", tmp_path / "clone")
 
 
 @pytest.mark.anyio
