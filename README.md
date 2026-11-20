@@ -154,7 +154,8 @@ containers.
 
 ### Everyday commands
 
-Every command is a [Makefile](Makefile) target.
+Every command is a [Makefile](Makefile) target, and `make help`, or `make`
+alone, lists them all with what each one does.
 
 | Command | What it does |
 | --- | --- |

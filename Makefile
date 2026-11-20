@@ -74,6 +74,18 @@ endef
 .PHONY: build-dev start-dev stop-dev
 
 
+# -----------------------------------------------------------------------------
+# Help
+# -----------------------------------------------------------------------------
+
+.DEFAULT_GOAL := help
+.PHONY: help
+
+## List every target, by component, with what it does
+help:
+	@awk -f scripts/make-help.awk $(firstword $(MAKEFILE_LIST))
+
+
 # #############################################################################
 #
 #   B A C K E N D
@@ -199,6 +211,8 @@ $(FRONTEND_MODULES): $(FRONTEND)/package-lock.json
 	npm ci
 	@touch $(FRONTEND_MODULES)
 
+## Install the locked npm dependencies, unless the lockfile is unchanged since
+## the last install
 frontend-install-ci: $(FRONTEND_MODULES)
 
 ## Verify lint, formatting and types without touching sources
@@ -247,6 +261,8 @@ clean-dev:
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend down --rmi all
 	@touch $(BUILD_DEV_STAMP)
 
+## Build the development images, if a Dockerfile or the stack has changed since
+## the last build
 build-dev:
 	$(MAKE) $(BUILD_DEV_STAMP)
 
@@ -274,6 +290,7 @@ start-dev-https: $(BUILD_DEV_STAMP)
 	$(call start_dev_backend,https://lvh.me:5173)
 	cd frontend && DEV_HTTPS=1 npm run dev
 
+## Tear down the backend containers, which `start-dev` leaves running
 stop-dev:
 	$(DC) -f $(COMPOSE_DEV_FILE) down
 
@@ -281,6 +298,7 @@ stop-dev:
 start-prod: $(BUILD_DEV_STAMP)
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend up -d
 
+## Tear the backend containers down, then start the stack as `start-dev` does
 restart-dev: stop-dev start-dev
 
 ## Stop the full stack, ui and Caddy included
