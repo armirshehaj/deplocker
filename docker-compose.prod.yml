@@ -1,4 +1,4 @@
-# Production layer over docker-compose.yml, applied by `make deploy-cd`. Caddy
+# Production layer over docker-compose.yml, applied by `make deploy`. Caddy
 # is the server's web server and the only service publishing host ports: it owns
 # 80 and 443 and is the way in to the web app and the API.
 #
@@ -20,7 +20,7 @@ services:
       - caddy_data:/data  # certificates and the ACME account
       - caddy_config:/config
     healthcheck:
-      # Probes the admin endpoint that `make deploy-cd` reloads through, so
+      # Probes the admin endpoint that `make deploy` reloads through, so
       # `up --wait` returns only once it answers
       test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:2019/config/"]
       interval: 30s
@@ -35,7 +35,7 @@ services:
       - api_logs:/app/app/logs  # app.log and its rotated copies, kept across deploys
     command: !reset null
     ports: !reset []
-    # Kept out of docker-compose.yml, so `make start-dev` fails as soon as api exits
+    # Kept out of docker-compose.yml, so `make dev` fails as soon as api exits
     restart: unless-stopped
 
   postgres:

@@ -1,15 +1,18 @@
 #!/bin/bash
 
+staged=$(git diff --cached --name-only)
+
 # Lint the components touched by the staged files, as CI does
-if ! make lint-ci; then
+targets=()
+grep -q '^frontend/' <<<"$staged" && targets+=(frontend-lint)
+grep -q '^backend/' <<<"$staged" && targets+=(backend-lint)
+if [ ${#targets[@]} -gt 0 ] && ! make "${targets[@]}"; then
     cat >&2 <<'EOF'
 
 pre-commit: linting failed.
 
-  To address formatting issues, use the respective automatic reformatting tools:
-  -> For backend use: make backend-reformat
-  -> For frontend use: make frontend-reformat
-  
+  To fix formatting automatically, run: make format
+
   Carefully review the issues reported by mypy, ESLint, and tsc.
 EOF
     exit 1
@@ -17,8 +20,8 @@ fi
 
 # A model change needs a migration. When either side is staged, check that the
 # migrations build the schema the models describe, as CI does.
-if git diff --cached --name-only | grep -qE '^backend/(app/models|alembic)/'; then
-    if ! make backend-migrations-local; then
+if grep -qE '^backend/(app/models|alembic)/' <<<"$staged"; then
+    if ! make migrations-check; then
         cat >&2 <<'EOF'
 
 pre-commit: migrations check failed.

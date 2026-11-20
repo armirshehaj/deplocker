@@ -1,7 +1,7 @@
 # Serves the web app and the API at one address, the API under /api.
 # The API sees paths without that prefix: /api/health reaches it as /health.
 # SITE_ADDRESS is the production URL on the server, and :8082 for
-# `make start-prod`.
+# `make preview`.
 
 {$SITE_ADDRESS} {
 	handle_path /api/* {
