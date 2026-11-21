@@ -12,7 +12,7 @@ services:
   # Backend services
   api:
     build: ./backend
-    # `make deploy-cd` sets IMAGE_TAG to the deployed commit's SHA
+    # `make deploy` sets IMAGE_TAG to the deployed commit's SHA
     image: deplocker-api:${IMAGE_TAG:-latest}
     container_name: deplocker-api
     pull_policy: never
@@ -20,7 +20,7 @@ services:
     environment:
       # Frontend origin used by the backend for email confirmation links and
       # passkey checks. Pass-through form (no value): forwarded only when set
-      # on the host, so `make start-dev` can override it to the Vite dev server
+      # on the host, so `make dev` can override it to the Vite dev server
       # (http://localhost:5173). On a bare `up` the key is not injected and the
       # value from the env_file above stays in effect.
       - DEV_FRONTEND_URL
@@ -106,7 +106,7 @@ services:
       SITE_ADDRESS: ":8082"
     ports:
       # The production build of the web app and the API, at localhost:8082
-      # (`make start-prod`)
+      # (`make preview`)
       - "8082:8082"
     volumes:
       - ./caddy:/etc/caddy:ro

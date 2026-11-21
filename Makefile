@@ -3,15 +3,13 @@
 #
 #   D E P L O C K E R
 #
-#   Task runner for local development and CI.
-#   Targets are namespaced <component>-<action>-<environment>.
+#   Task runner for development, checks and delivery. `make help`, or `make`
+#   alone, lists the targets with what each one does.
 #
 # =============================================================================
 
 
-# -----------------------------------------------------------------------------
-# Configuration
-# -----------------------------------------------------------------------------
+# --- Configuration -----------------------------------------------------------
 
 D                  = docker
 DC                 = docker compose
@@ -19,13 +17,17 @@ DC                 = docker compose
 BACKEND            = ./backend
 FRONTEND           = ./frontend
 
-UV                := $(shell which uv)
-
 # The dev stack keeps `ui` behind a profile; the prod file layers Caddy over it;
 # the test stack is self-contained, under its own project name.
 COMPOSE_DEV_FILE   = docker-compose.yml
 COMPOSE_PROD_FILE  = docker-compose.prod.yml
 COMPOSE_TEST_FILE  = docker-compose.test.yml
+
+# The backend's checks run in the test stack: the tests under its own project
+# name, the migrations check under one of its own, so neither tears down the
+# other's database
+DC_TEST            = $(DC) -f $(COMPOSE_TEST_FILE)
+DC_MIGRATIONS      = $(DC) -p deplocker-migrations -f $(COMPOSE_TEST_FILE)
 
 # The server's configuration, which also supplies Caddy's site addresses
 PROD_ENV_FILE      = /etc/deplocker/.env
@@ -35,10 +37,6 @@ DC_PROD            = IMAGE_TAG=$(IMAGE_SHA) $(DC) -f $(COMPOSE_DEV_FILE) -f $(CO
 
 BUILD_DEV_STAMP    = .build-dev.stamp
 FRONTEND_MODULES   = $(FRONTEND)/node_modules
-
-# Build the schema from migrations, then fail if the models describe anything
-# the migrations do not. Shared by CI and the pre-commit hook.
-MIGRATIONS_CHECK   = uv run alembic upgrade head && uv run alembic check
 
 # Registry coordinates for the published images. IMAGE_OWNER and IMAGE_SHA are
 # supplied by CI from the GitHub context.
@@ -52,7 +50,7 @@ UI_IMAGE          ?= deplocker-ui
 # GHCR rejects uppercase path segments, but the owner keeps the account casing.
 REGISTRY_NS        = $(REGISTRY)/$(shell echo '$(IMAGE_OWNER)' | tr '[:upper:]' '[:lower:]')
 
-# $(1) = local image name, tagged :$(IMAGE_SHA) by the corresponding *-build-ci target
+# $(1) = local image name, tagged :$(IMAGE_SHA) by `build`
 define publish_image
 	$(D) tag $(1):$(IMAGE_SHA) $(REGISTRY_NS)/$(1):$(IMAGE_SHA)
 	$(D) tag $(1):$(IMAGE_SHA) $(REGISTRY_NS)/$(1):latest
@@ -71,188 +69,47 @@ define require_registry_vars
 endef
 
 
-.PHONY: build-dev start-dev stop-dev
+# --- Help --------------------------------------------------------------------
+
+.DEFAULT_GOAL := help
+.PHONY: help
+
+# Lists the targets that carry a `##` comment, under their headings
+help:
+	@awk -f scripts/make-help.awk $(firstword $(MAKEFILE_LIST))
 
 
-# #############################################################################
-#
-#   B A C K E N D
-#
-# #############################################################################
+# --- Setup -------------------------------------------------------------------
 
-# --- Local development -------------------------------------------------------
+.PHONY: install
 
-.PHONY: backend-install-local backend-clean-local backend-reformat \
-        backend-run-local backend-stop-local backend-migrations-local
-
-## Install the locked Python dependencies into backend/.venv
-backend-install-local:
+## Install the locked dependencies, into backend/.venv and
+## frontend/node_modules
+install: $(FRONTEND_MODULES)
 	cd $(BACKEND) && \
 	uv sync --frozen
 
-## Remove the virtualenv and the resolved lockfile
-backend-clean-local:
-	cd $(BACKEND) && \
-	rm -rf .venv uv.lock
-
-## Rewrite sources in place: format, then autofix lint violations
-backend-reformat:
-	cd $(BACKEND) && \
-	uv run ruff format . && \
-	uv run ruff check --fix .
-
-## Bring the backend stack up in the foreground (no ui: it is profile-gated)
-backend-run-local:
-	$(DC) -f $(COMPOSE_DEV_FILE) up
-
-## Tear the backend stack down
-backend-stop-local:
-	$(DC) -f $(COMPOSE_DEV_FILE) down
-
-## The CI migrations check, run before committing. Its own project name keeps it
-## clear of a CI run's stack. Teardown runs whatever the outcome: a surviving
-## database would keep the schema, and the next run would check against it
-## instead of building it from empty.
-backend-migrations-local:
-	$(DC) -p deplocker-migrations -f $(COMPOSE_TEST_FILE) run --rm --build api \
-		sh -c "$(MIGRATIONS_CHECK)"; \
-	status=$$?; \
-	$(DC) -p deplocker-migrations -f $(COMPOSE_TEST_FILE) down -v --remove-orphans; \
-	exit $$status
-
-
-# --- CI / CD -----------------------------------------------------------------
-
-.PHONY: backend-lint-ci backend-migrations-ci backend-test-ci backend-clean-ci backend-build-ci backend-publish-ci
-
-## Verify formatting and static types without touching sources, in the test
-## image, against the Python and packages the tests run on
-backend-lint-ci:
-	$(DC) -f $(COMPOSE_TEST_FILE) run --rm --build --no-deps api \
-		sh -c "uv run ruff format --check . && uv run mypy ."
-
-## Build the schema from migrations on the empty CI database, then fail if the
-## models describe anything the migrations do not
-backend-migrations-ci:
-	$(DC) -f $(COMPOSE_TEST_FILE) run --rm --build api \
-		sh -c "$(MIGRATIONS_CHECK)"
-
-## Run the test suite in containers; exit with the api container's status
-backend-test-ci:
-	$(DC) -f $(COMPOSE_TEST_FILE) up \
-		--build \
-		--exit-code-from api \
-		--abort-on-container-exit
-
-## Tear the test stack down, volumes and stragglers included
-backend-clean-ci:
-	$(DC) -f $(COMPOSE_TEST_FILE) down -v --remove-orphans
-
-## Build the shippable image from the production stage, which installs without
-## dev dependencies and starts uvicorn directly (no --reload, no bind mount).
-## --pull builds on the newest base image, not one cached by an earlier build.
-backend-build-ci:
-	$(require_image_sha)
-	$(D) build --pull --target production -t $(API_IMAGE):$(IMAGE_SHA) $(BACKEND)
-
-## Tag and push the built image, then drop the registry tags so only the local
-## `:$(IMAGE_SHA)` is left behind on the runner, for deploy-cd.
-backend-publish-ci:
-	$(require_registry_vars)
-	$(call publish_image,$(API_IMAGE))
-
-
-# #############################################################################
-#
-#   F R O N T E N D
-#
-# #############################################################################
-
-# --- Local development -------------------------------------------------------
-
-.PHONY: install-frontend-local clean-frontend-local frontend-reformat \
-
-## Install npm dependencies into frontend/node_modules
-install-frontend-local:
-	cd $(FRONTEND) && \
-	npm install
-
-## Remove installed modules and the lockfile
-clean-frontend-local:
-	cd $(FRONTEND) && \
-	rm -rf node_modules package-lock.json
-
-## Rewrite sources in place with the project formatter
-frontend-reformat:
-	cd $(FRONTEND) && \
-	npm run format
-
-
-# --- CI / CD -----------------------------------------------------------------
-
-.PHONY: frontend-install-ci frontend-lint-ci frontend-test-ci frontend-build-ci frontend-publish-ci
-
-## Sentinel: reinstall only when the lockfile moves, so lint, typecheck and the
-## suite can each be invoked as their own CI step without repeating `npm ci`.
+# Reinstalls only when the lockfile moves, so every frontend target can depend
+# on it without repeating `npm ci`
 $(FRONTEND_MODULES): $(FRONTEND)/package-lock.json
 	cd $(FRONTEND) && \
 	npm ci
 	@touch $(FRONTEND_MODULES)
 
-frontend-install-ci: $(FRONTEND_MODULES)
 
-## Verify lint, formatting and types without touching sources
-frontend-lint-ci: $(FRONTEND_MODULES)
-	cd $(FRONTEND) && \
-	npm run lint && \
-	npm run format:check && \
-	npx tsc -b
+# --- Development -------------------------------------------------------------
 
-## Run the vitest suite once (jsdom, no server)
-frontend-test-ci: $(FRONTEND_MODULES)
-	cd $(FRONTEND) && \
-	npm run test
+.PHONY: dev dev-https preview stop clean format
 
-## Build the shippable image
-frontend-build-ci:
-	$(require_image_sha)
-	$(D) build --target runtime -t $(UI_IMAGE):$(IMAGE_SHA) $(FRONTEND)
-
-## Tag and push the built image, then drop the registry tags
-frontend-publish-ci:
-	$(require_registry_vars)
-	$(call publish_image,$(UI_IMAGE))
-
-
-# #############################################################################
-#
-#   F U L L   S T A C K
-#
-# #############################################################################
-
-# --- Development environment -------------------------------------------------
-
-.PHONY: build-dev clean-dev start-dev start-dev-https stop-dev restart-dev
-
-## Sentinel: images are rebuilt only when a Dockerfile or the stack definition
-## changes. The `frontend` profile is named so that `ui` is built alongside api.
+# Rebuilds the images only when a Dockerfile or the stack definition changes.
+# The `frontend` profile is named so that `ui` is built alongside api.
 $(BUILD_DEV_STAMP): $(COMPOSE_DEV_FILE) $(BACKEND)/Dockerfile $(BACKEND)/.dockerignore $(FRONTEND)/Dockerfile
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend build
 	@touch $(BUILD_DEV_STAMP)
 
-## Tear the stack down, ui and Caddy included, and remove its images, so the
-## next start rebuilds them
-clean-dev:
-	@rm -f $(BUILD_DEV_STAMP)
-	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend down --rmi all
-	@touch $(BUILD_DEV_STAMP)
-
-build-dev:
-	$(MAKE) $(BUILD_DEV_STAMP)
-
 # $(1) = frontend origin, passed to api as DEV_FRONTEND_URL
 #
-# Same --wait guard as deploy-cd: fails as soon as api exits or turns unhealthy,
+# Same --wait guard as `deploy`: fails as soon as api exits or turns unhealthy,
 # so the dev server never starts in front of a dead backend. The tail of api's
 # log is printed on failure, since compose itself only reports the exit code.
 define start_dev_backend
@@ -262,62 +119,124 @@ define start_dev_backend
 	|| { $(DC) -f $(COMPOSE_DEV_FILE) logs --tail 30 api; exit 1; }
 endef
 
-## Start the backend containers detached, then the Vite dev server in the
-## foreground, which reloads the page on every edit
-start-dev: $(BUILD_DEV_STAMP)
+## Start the backend containers, then the Vite dev server, which reloads the
+## page on every edit. The containers run detached; Vite holds the terminal.
+dev: $(BUILD_DEV_STAMP) $(FRONTEND_MODULES)
 	$(call start_dev_backend,http://localhost:5173)
-	cd frontend && npm run dev
+	cd $(FRONTEND) && npm run dev
 
-## Same stack, served over TLS on the lvh.me test domain (mkcert certificates in
-## ./frontend), so the browser runs a real passkey ceremony against RP ID lvh.me.
-start-dev-https: $(BUILD_DEV_STAMP)
+## Start the same stack over HTTPS, on the lvh.me test domain, for trying
+## passkeys. Its mkcert certificates in ./frontend let the browser run a real
+## passkey ceremony against RP ID lvh.me.
+dev-https: $(BUILD_DEV_STAMP) $(FRONTEND_MODULES)
 	$(call start_dev_backend,https://lvh.me:5173)
-	cd frontend && DEV_HTTPS=1 npm run dev
+	cd $(FRONTEND) && DEV_HTTPS=1 npm run dev
 
-stop-dev:
-	$(DC) -f $(COMPOSE_DEV_FILE) down
-
-## Build if needed, then start the stack detached, ui and Caddy included
-start-prod: $(BUILD_DEV_STAMP)
+## Run the whole stack in containers, the web app's production build included,
+## at http://localhost:8082
+preview: $(BUILD_DEV_STAMP)
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend up -d
 
-restart-dev: stop-dev start-dev
-
-## Stop the full stack, ui and Caddy included
-stop-prod:
+## Stop the containers that `dev`, `dev-https` or `preview` started
+stop:
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend down
 
+## Remove the stack's containers and images, ui and Caddy included, so the next
+## start rebuilds them
+clean:
+	@rm -f $(BUILD_DEV_STAMP)
+	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend down --rmi all
+	@touch $(BUILD_DEV_STAMP)
 
-# --- CI / CD -----------------------------------------------------------------
+## Format the code and fix the lint errors Ruff can fix
+format: $(FRONTEND_MODULES)
+	cd $(BACKEND) && \
+	uv run ruff format . && \
+	uv run ruff check --fix .
+	cd $(FRONTEND) && \
+	npm run format
 
-.PHONY: lint-ci build-ci publish-ci deploy-cd
 
-## Lint the components touched by the staged files
-lint-ci:
-	@files=$$(git diff --cached --name-only); targets=; \
-	echo "$$files" | grep -q '^frontend/' && targets="$$targets frontend-lint-ci"; \
-	echo "$$files" | grep -q '^backend/' && targets="$$targets backend-lint-ci"; \
-	[ -z "$$targets" ] || $(MAKE) $$targets
+# --- Checks ------------------------------------------------------------------
 
-## Build both shippable images
-build-ci: backend-build-ci frontend-build-ci
+# CI and the pre-commit hook run these same targets, each check on one
+# component, so a check gives the same verdict on every machine.
 
-## Run tests for both frontend and backend
-test-ci: backend-test-ci frontend-test-ci
+.PHONY: backend-lint backend-test migrations-check test-clean frontend-lint frontend-test
 
-## Publish both images under :$(IMAGE_SHA) and :latest
-publish-ci: backend-publish-ci frontend-publish-ci
+## Check the backend's formatting and static types, without touching sources.
+## It runs in the test image, against the Python and packages the tests run on.
+backend-lint:
+	$(DC_TEST) run --rm --build --no-deps api \
+		sh -c "uv run ruff format --check . && uv run mypy ."
 
-## Reconcile the running stack with the images this run just built.
+## Run the backend tests in a throwaway stack, exiting with their status. The
+## stack stays until `make test-clean`.
+backend-test:
+	$(DC_TEST) up \
+		--build \
+		--exit-code-from api \
+		--abort-on-container-exit
+
+## Check that the migrations, applied to an empty database, build the schema
+## the models describe. Teardown runs whatever the outcome: a surviving
+## database would keep the schema, and the next run would check against it
+## instead of building it from empty.
+migrations-check:
+	$(DC_MIGRATIONS) run --rm --build api \
+		sh -c "uv run alembic upgrade head && uv run alembic check"; \
+	status=$$?; \
+	$(DC_MIGRATIONS) down -v --remove-orphans; \
+	exit $$status
+
+## Remove the stacks the backend checks run in, volumes included
+test-clean:
+	$(DC_TEST) down -v --remove-orphans
+	$(DC_MIGRATIONS) down -v --remove-orphans
+
+## Check the frontend's lint, formatting and types, without touching sources
+frontend-lint: $(FRONTEND_MODULES)
+	cd $(FRONTEND) && \
+	npm run lint && \
+	npm run format:check && \
+	npx tsc -b
+
+## Run the frontend tests once (jsdom, no server)
+frontend-test: $(FRONTEND_MODULES)
+	cd $(FRONTEND) && \
+	npm run test
+
+
+# --- Delivery ----------------------------------------------------------------
+
+.PHONY: build publish deploy
+
+## Build the shippable api and ui images, tagged :IMAGE_SHA. The api image comes
+## from the production stage, which installs without dev dependencies and starts
+## uvicorn directly (no --reload, no bind mount). --pull builds it on the newest
+## base image, not one cached by an earlier build.
+build:
+	$(require_image_sha)
+	$(D) build --pull --target production -t $(API_IMAGE):$(IMAGE_SHA) $(BACKEND)
+	$(D) build --target runtime -t $(UI_IMAGE):$(IMAGE_SHA) $(FRONTEND)
+
+## Push both images under :IMAGE_SHA and :latest. The registry tags are dropped
+## afterwards, so only the local :IMAGE_SHA tags are left behind, for `deploy`.
+publish:
+	$(require_registry_vars)
+	$(call publish_image,$(API_IMAGE))
+	$(call publish_image,$(UI_IMAGE))
+
+## Run the production stack on the images `build` made from IMAGE_SHA.
 ##
-## Deliberately not `start-prod`, which runs the development stack on the images
+## Deliberately not `preview`, which runs the development stack on the images
 ## tagged `latest`. `api` and `ui` are `pull_policy: never`, so this runs the
 ## local images `ci` built from IMAGE_SHA and never reaches the registry.
 ##
 ## --wait blocks until api reports healthy and fails the job if it does not.
 ## `up` leaves an unchanged caddy container running, so the reload applies the
 ## checked-out Caddyfile; Caddy skips it when the file is unchanged.
-deploy-cd:
+deploy:
 	$(require_image_sha)
 	$(DC_PROD) up -d \
 		--wait \

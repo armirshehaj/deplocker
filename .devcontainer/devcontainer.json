@@ -32,7 +32,7 @@
   // and the host browser reaches Vite on lvh.me:5173. Linux hosts only.
   "runArgs": ["--network=host"],
 
-  "postCreateCommand": "sudo chown vscode backend/.venv /home/vscode/.config/gh /home/vscode/.claude && make backend-install-local frontend-install-ci",
+  "postCreateCommand": "sudo chown vscode backend/.venv /home/vscode/.config/gh /home/vscode/.claude && make install",
 
   "customizations": {
     "vscode": {
