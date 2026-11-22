@@ -99,7 +99,7 @@ $(FRONTEND_MODULES): $(FRONTEND)/package-lock.json
 
 # --- Development -------------------------------------------------------------
 
-.PHONY: dev dev-https preview stop clean format
+.PHONY: dev dev-https preview stop restart restart-https clean format
 
 # Rebuilds the images only when a Dockerfile or the stack definition changes.
 # The `frontend` profile is named so that `ui` is built alongside api.
@@ -140,6 +140,13 @@ preview: $(BUILD_DEV_STAMP)
 ## Stop the containers that `dev`, `dev-https` or `preview` started
 stop:
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend down
+
+## Stop the containers, then start the stack again as `dev` does. Stop Vite
+## first, with Ctrl+C: `stop` leaves it running.
+restart: stop dev
+
+## Stop the containers, then start the stack again as `dev-https` does
+restart-https: stop dev-https
 
 ## Remove the stack's containers and images, ui and Caddy included, so the next
 ## start rebuilds them

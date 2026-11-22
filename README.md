@@ -160,6 +160,7 @@ alone, lists them all with what each one does.
 | Command | What it does |
 | --- | --- |
 | `make dev` / `make stop` | Start or stop the development stack |
+| `make restart` / `make restart-https` | Stop the containers, then start the stack again as `make dev` or `make dev-https` does |
 | `make dev-https` | The same, over HTTPS, for trying passkeys (see below) |
 | `make preview` | Run the whole stack in containers, the web app's production build included, at <http://localhost:8082>; `make stop` stops it too |
 | `make format` | Format the code and fix the lint errors Ruff can fix |
