@@ -9,5 +9,4 @@
 dev_scripts/
 
 # Local tooling config
-.claude/settings.local.json
-.claude/CLAUDE.md
+.claude/*
