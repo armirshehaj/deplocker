@@ -2,13 +2,14 @@ import asyncio
 import contextlib
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from http import HTTPStatus
 from pathlib import Path
+from typing import Any
 
-import docker
+import aiodocker
 import httpx
 import pytest
-from docker.errors import ImageNotFound, NotFound
 
 from app.core.conf import settings
 from app.services.docker import (
@@ -61,16 +62,21 @@ LIMITS = ResourceLimits(memory_mb=64, cpus=0.5)
 
 
 @pytest.fixture
-def application_id() -> Iterator[uuid.UUID]:
+async def application_id(docker: aiodocker.Docker) -> AsyncIterator[uuid.UUID]:
     """An application's id, whose container is removed after the test."""
     identifier = uuid.uuid4()
     yield identifier
-    with contextlib.suppress(NotFound):
-        docker.from_env().containers.get(container_name(identifier)).remove(force=True)
+    try:
+        await docker.containers.container(container_name(identifier)).delete(force=True)
+    except aiodocker.DockerError as error:
+        if error.status != HTTPStatus.NOT_FOUND:
+            raise
 
 
 @pytest.fixture
-async def build(tmp_path: Path) -> AsyncIterator[Callable[[str], Awaitable[str]]]:
+async def build(
+    docker: aiodocker.Docker, tmp_path: Path
+) -> AsyncIterator[Callable[[str], Awaitable[str]]]:
     """Builds a Dockerfile, given as text, into an image for the test and returns
     the image's tag. The images are removed afterwards."""
     tags: list[str] = []
@@ -80,14 +86,17 @@ async def build(tmp_path: Path) -> AsyncIterator[Callable[[str], Awaitable[str]]
         context.mkdir()
         (context / "Dockerfile").write_text(dockerfile)
         tag = f"deplocker-test-{uuid.uuid4().hex[:12]}"
-        await DockerService().build_image(context, context / "Dockerfile", tag)
+        await DockerService(docker).build_image(context, context / "Dockerfile", tag)
         tags.append(tag)
         return tag
 
     yield build_image
     for tag in tags:
-        with contextlib.suppress(ImageNotFound):
-            docker.from_env().images.remove(tag, force=True)
+        try:
+            await docker.images.delete(tag, force=True)
+        except aiodocker.DockerError as error:
+            if error.status != HTTPStatus.NOT_FOUND:
+                raise
 
 
 @pytest.fixture
@@ -96,10 +105,9 @@ async def web_server(build: Callable[[str], Awaitable[str]]) -> str:
     return await build(WEB_SERVER)
 
 
-def state_of(application_id: uuid.UUID) -> dict:
-    """The state the daemon reports for an application's container."""
-    container = docker.from_env().containers.get(container_name(application_id))
-    return dict(container.attrs["State"])
+async def inspect(docker: aiodocker.Docker, application_id: uuid.UUID) -> Any:
+    """What the daemon reports of an application's container."""
+    return await docker.containers.container(container_name(application_id)).show()
 
 
 async def fetch(url: str) -> str:
@@ -113,9 +121,9 @@ async def fetch(url: str) -> str:
 
 
 async def test_lifecycle_of_an_application_container(
-    application_id: uuid.UUID, web_server: str
+    docker: aiodocker.Docker, application_id: uuid.UUID, web_server: str
 ) -> None:
-    service = DockerService(stop_timeout=1)
+    service = DockerService(docker, stop_timeout=1)
 
     container = await service.run_container(application_id, web_server, {}, LIMITS)
     status = await service.container_status(application_id)
@@ -133,9 +141,9 @@ async def test_lifecycle_of_an_application_container(
 
 
 async def test_container_answers_by_name_on_the_network(
-    application_id: uuid.UUID, web_server: str
+    docker: aiodocker.Docker, application_id: uuid.UUID, web_server: str
 ) -> None:
-    container = await DockerService().run_container(
+    container = await DockerService(docker).run_container(
         application_id, web_server, {}, LIMITS
     )
 
@@ -144,13 +152,13 @@ async def test_container_answers_by_name_on_the_network(
 
 
 async def test_container_is_reachable_on_the_network_alone(
-    application_id: uuid.UUID, web_server: str
+    docker: aiodocker.Docker, application_id: uuid.UUID, web_server: str
 ) -> None:
-    container = await DockerService().run_container(
+    container = await DockerService(docker).run_container(
         application_id, web_server, {"GREETING": "hello"}, LIMITS
     )
 
-    attributes = docker.from_env().containers.get(container.id).attrs
+    attributes = await docker.containers.container(container.id).show()
     assert not attributes["HostConfig"]["PortBindings"]
     assert not attributes["HostConfig"]["PublishAllPorts"]
     assert list(attributes["NetworkSettings"]["Networks"]) == [settings.DOCKER_NETWORK]
@@ -159,13 +167,14 @@ async def test_container_is_reachable_on_the_network_alone(
 
 
 async def test_container_within_its_limits(
-    application_id: uuid.UUID, web_server: str
+    docker: aiodocker.Docker, application_id: uuid.UUID, web_server: str
 ) -> None:
-    container = await DockerService().run_container(
+    container = await DockerService(docker).run_container(
         application_id, web_server, {}, LIMITS
     )
 
-    host_config = docker.from_env().containers.get(container.id).attrs["HostConfig"]
+    attributes = await docker.containers.container(container.id).show()
+    host_config = attributes["HostConfig"]
     assert host_config["Memory"] == 64 * 1024 * 1024
     # No swap beyond the memory limit
     assert host_config["MemorySwap"] == host_config["Memory"]
@@ -173,35 +182,39 @@ async def test_container_within_its_limits(
 
 
 async def test_second_container_for_an_application(
-    application_id: uuid.UUID, web_server: str
+    docker: aiodocker.Docker, application_id: uuid.UUID, web_server: str
 ) -> None:
-    service = DockerService()
+    service = DockerService(docker)
     await service.run_container(application_id, web_server, {}, LIMITS)
 
     with pytest.raises(ContainerNameTakenError):
         await service.run_container(application_id, web_server, {}, LIMITS)
 
 
-async def test_container_of_a_missing_image(application_id: uuid.UUID) -> None:
+async def test_container_of_a_missing_image(
+    docker: aiodocker.Docker, application_id: uuid.UUID
+) -> None:
     with pytest.raises(ImageNotFoundError):
-        await DockerService().run_container(
+        await DockerService(docker).run_container(
             application_id, "deplocker-test-missing:latest", {}, LIMITS
         )
 
-    with pytest.raises(NotFound):
-        docker.from_env().containers.get(container_name(application_id))
+    with pytest.raises(aiodocker.DockerError, match="No such container"):
+        await inspect(docker, application_id)
 
 
 async def test_stop_lets_the_container_exit_on_its_signal(
-    application_id: uuid.UUID, build: Callable[[str], Awaitable[str]]
+    docker: aiodocker.Docker,
+    application_id: uuid.UUID,
+    build: Callable[[str], Awaitable[str]],
 ) -> None:
-    service = DockerService(stop_timeout=10)
+    service = DockerService(docker, stop_timeout=10)
     await service.run_container(
         application_id, await build(EXITS_ON_SIGTERM), {}, LIMITS
     )
-    container = docker.from_env().containers.get(container_name(application_id))
+    container = docker.containers.container(container_name(application_id))
     for _ in range(50):
-        if b"ready" in container.logs():
+        if "ready" in "".join(await container.log(stdout=True)):
             break
         await asyncio.sleep(0.1)
 
@@ -209,14 +222,17 @@ async def test_stop_lets_the_container_exit_on_its_signal(
     assert await service.stop_container(application_id)
 
     assert time.monotonic() - started < 5
-    assert state_of(application_id)["Status"] == "exited"
-    assert state_of(application_id)["ExitCode"] == 0
+    state = (await inspect(docker, application_id))["State"]
+    assert state["Status"] == "exited"
+    assert state["ExitCode"] == 0
 
 
 async def test_stop_kills_a_container_past_its_grace_period(
-    application_id: uuid.UUID, build: Callable[[str], Awaitable[str]]
+    docker: aiodocker.Docker,
+    application_id: uuid.UUID,
+    build: Callable[[str], Awaitable[str]],
 ) -> None:
-    service = DockerService(stop_timeout=1)
+    service = DockerService(docker, stop_timeout=1)
     await service.run_container(
         application_id, await build(IGNORES_SIGTERM), {}, LIMITS
     )
@@ -226,32 +242,35 @@ async def test_stop_kills_a_container_past_its_grace_period(
 
     assert time.monotonic() - started >= 1
     # 128 plus the number of SIGKILL
-    assert state_of(application_id)["ExitCode"] == 137
+    assert (await inspect(docker, application_id))["State"]["ExitCode"] == 137
 
 
-async def test_remove_container(application_id: uuid.UUID, web_server: str) -> None:
-    service = DockerService(stop_timeout=1)
+async def test_remove_container(
+    docker: aiodocker.Docker, application_id: uuid.UUID, web_server: str
+) -> None:
+    service = DockerService(docker, stop_timeout=1)
     await service.run_container(application_id, web_server, {}, LIMITS)
 
     assert await service.remove_container(application_id)
 
-    with pytest.raises(NotFound):
-        docker.from_env().containers.get(container_name(application_id))
+    with pytest.raises(aiodocker.DockerError, match="No such container"):
+        await inspect(docker, application_id)
 
 
 async def test_stop_and_remove_without_a_container(
+    docker: aiodocker.Docker,
     application_id: uuid.UUID,
 ) -> None:
-    service = DockerService()
+    service = DockerService(docker)
 
     assert not await service.stop_container(application_id)
     assert not await service.remove_container(application_id)
 
 
 async def test_status_of_a_running_container(
-    application_id: uuid.UUID, web_server: str
+    docker: aiodocker.Docker, application_id: uuid.UUID, web_server: str
 ) -> None:
-    service = DockerService()
+    service = DockerService(docker)
     await service.run_container(application_id, web_server, {}, LIMITS)
 
     assert await service.container_status(application_id) == ContainerStatus(
@@ -260,9 +279,11 @@ async def test_status_of_a_running_container(
 
 
 async def test_status_of_a_stopped_container(
-    application_id: uuid.UUID, build: Callable[[str], Awaitable[str]]
+    docker: aiodocker.Docker,
+    application_id: uuid.UUID,
+    build: Callable[[str], Awaitable[str]],
 ) -> None:
-    service = DockerService(stop_timeout=0)
+    service = DockerService(docker, stop_timeout=0)
     await service.run_container(
         application_id, await build(IGNORES_SIGTERM), {}, LIMITS
     )
@@ -274,9 +295,11 @@ async def test_status_of_a_stopped_container(
 
 
 async def test_status_of_a_crashing_container(
-    application_id: uuid.UUID, build: Callable[[str], Awaitable[str]]
+    docker: aiodocker.Docker,
+    application_id: uuid.UUID,
+    build: Callable[[str], Awaitable[str]],
 ) -> None:
-    service = DockerService()
+    service = DockerService(docker)
     await service.run_container(application_id, await build(FAILS), {}, LIMITS)
 
     for _ in range(100):
@@ -289,16 +312,20 @@ async def test_status_of_a_crashing_container(
     assert status.exit_code == 3
 
 
-async def test_status_without_a_container(application_id: uuid.UUID) -> None:
-    assert await DockerService().container_status(application_id) == ContainerStatus(
-        ContainerState.MISSING
-    )
+async def test_status_without_a_container(
+    docker: aiodocker.Docker, application_id: uuid.UUID
+) -> None:
+    assert await DockerService(docker).container_status(
+        application_id
+    ) == ContainerStatus(ContainerState.MISSING)
 
 
 async def test_log_tail(
-    application_id: uuid.UUID, build: Callable[[str], Awaitable[str]]
+    docker: aiodocker.Docker,
+    application_id: uuid.UUID,
+    build: Callable[[str], Awaitable[str]],
 ) -> None:
-    service = DockerService()
+    service = DockerService(docker)
     await service.run_container(application_id, await build(WRITES_LINES), {}, LIMITS)
 
     for _ in range(50):
@@ -310,5 +337,7 @@ async def test_log_tail(
     assert tail == [f"line {number}" for number in range(46, 51)]
 
 
-async def test_log_tail_without_a_container(application_id: uuid.UUID) -> None:
-    assert await DockerService().container_logs(application_id, 5) is None
+async def test_log_tail_without_a_container(
+    docker: aiodocker.Docker, application_id: uuid.UUID
+) -> None:
+    assert await DockerService(docker).container_logs(application_id, 5) is None

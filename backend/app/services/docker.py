@@ -8,16 +8,19 @@ from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from http import HTTPStatus
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
-from docker import DockerClient
-from docker.errors import APIError, DockerException, ImageNotFound, NotFound
-from requests.exceptions import ConnectionError as DaemonConnectionError
+import aiodocker
+import aiohttp
+from aiodocker.containers import DockerContainer
 
 from app.core.conf import settings
-from app.core.docker import DOCKER_HOST, get_docker_client
 from app.utils.docker.names import container_name
+
+if TYPE_CHECKING:
+    from aiodocker.types import JSONObject
 
 # How many of a build's last lines of output its error carries
 BUILD_OUTPUT_TAIL_LINES = 20
@@ -28,6 +31,9 @@ APPLICATION_LABEL = "deplocker.application"
 # The most lines of a container's output a log tail returns
 LOG_TAIL_MAX_LINES = 1000
 
+# The status of aiodocker's error for a daemon it cannot connect to
+UNREACHABLE_STATUS = 900
+
 
 class DockerError(Exception):
     """The Docker daemon could not carry out an operation."""
@@ -36,8 +42,8 @@ class DockerError(Exception):
 class DockerUnavailableError(DockerError):
     """The Docker daemon cannot be reached."""
 
-    def __init__(self, reason: Exception) -> None:
-        super().__init__(f"Docker daemon is unreachable at {DOCKER_HOST}: {reason}")
+    def __init__(self, reason: object) -> None:
+        super().__init__(f"Docker daemon is unreachable: {reason}")
 
 
 class NetworkNotFoundError(DockerError):
@@ -123,29 +129,34 @@ class ContainerStatus:
 
 
 class DockerService:
-    """Builds images and runs containers on the host's Docker daemon."""
+    """Builds images and runs containers on the host's Docker daemon, which
+    `client` reaches."""
 
     def __init__(
         self,
+        client: aiodocker.Docker,
         network: str = settings.DOCKER_NETWORK,
         build_timeout: float = settings.DOCKER_BUILD_TIMEOUT_SECONDS,
         stop_timeout: int = settings.DOCKER_STOP_TIMEOUT_SECONDS,
     ) -> None:
+        self.client = client
         self.network = network
         self.build_timeout = build_timeout
         self.stop_timeout = stop_timeout
 
     async def daemon_version(self) -> str:
         """The version of the daemon the platform builds and runs on."""
-        version = await self._call(lambda client: client.version())
+        version = await self._call(self.client.version())
         return str(version["Version"])
 
     async def ensure_network(self) -> None:
         """Checks that the network the deployed applications join exists. Raises
         NetworkNotFoundError when it does not."""
         try:
-            await self._call(lambda client: client.networks.get(self.network))
-        except NotFound as error:
+            await self._call(self.client.networks.get(self.network))
+        except aiodocker.DockerError as error:
+            if error.status != HTTPStatus.NOT_FOUND:
+                raise
             raise NetworkNotFoundError(
                 f"Docker network {self.network} does not exist; "
                 "`docker compose up` creates it"
@@ -205,79 +216,73 @@ class DockerService:
         Raises ImageNotFoundError when the daemon holds no `image`, and
         ContainerNameTakenError when the application already has a container."""
         name = container_name(application_id)
+        memory = limits.memory_mb * 1024 * 1024
+        config: JSONObject = {
+            "Image": image,
+            "Env": [f"{variable}={value}" for variable, value in environment.items()],
+            "Labels": {APPLICATION_LABEL: str(application_id)},
+            "HostConfig": {
+                "NetworkMode": self.network,
+                # Back after a crash or a restart of the daemon, unless stopped
+                "RestartPolicy": {"Name": "unless-stopped"},
+                "Memory": memory,
+                # The same as the memory limit, so no swap is added beyond it
+                "MemorySwap": memory,
+                "NanoCpus": round(limits.cpus * 1_000_000_000),
+            },
+        }
 
-        def run(client: DockerClient) -> Any:
+        async def run() -> DockerContainer:
             # Created, then started: containers.run would pull an image it cannot
             # find, from a registry that never holds the platform's images
-            container = client.containers.create(
-                image,
-                name=name,
-                environment=dict(environment),
-                network=self.network,
-                labels={APPLICATION_LABEL: str(application_id)},
-                # Back after a crash or a restart of the daemon, unless stopped
-                restart_policy={"Name": "unless-stopped"},
-                mem_limit=f"{limits.memory_mb}m",
-                # The same as the memory limit, so no swap is added beyond it
-                memswap_limit=f"{limits.memory_mb}m",
-                nano_cpus=round(limits.cpus * 1_000_000_000),
-            )
+            container = await self.client.containers.create(config, name=name)
             try:
-                container.start()
+                await container.start()
             except BaseException:
-                container.remove(force=True)
+                await container.delete(force=True)
                 raise
             return container
 
         try:
-            container = await self._call(run)
-        except ImageNotFound as error:
-            raise ImageNotFoundError(f"Image {image} does not exist") from error
-        except APIError as error:
-            if error.status_code == 409:
+            container = await self._call(run())
+        except aiodocker.DockerError as error:
+            if error.status == HTTPStatus.NOT_FOUND:
+                raise ImageNotFoundError(f"Image {image} does not exist") from error
+            if error.status == HTTPStatus.CONFLICT:
                 raise ContainerNameTakenError(
                     f"Container {name} already exists"
                 ) from error
             raise
-        return Container(id=str(container.id), name=name)
+        return Container(id=container.id, name=name)
 
     async def stop_container(self, application_id: uuid.UUID) -> bool:
         """Stops an application's container: it receives its stop signal, SIGTERM
         unless its image names another, and is killed if it has not exited
         `stop_timeout` seconds later. Returns whether the application had a
         container."""
-
-        def stop(client: DockerClient) -> None:
-            client.containers.get(container_name(application_id)).stop(
-                timeout=self.stop_timeout
-            )
-
-        return await self._on_container(stop)
+        container = self._container(application_id)
+        return await self._on_container(container.stop(t=self.stop_timeout))
 
     async def remove_container(self, application_id: uuid.UUID) -> bool:
         """Stops an application's container as `stop_container` does, then removes
         it. Returns whether the application had a container; one already gone is
         not an error."""
+        container = self._container(application_id)
 
-        def remove(client: DockerClient) -> None:
-            container = client.containers.get(container_name(application_id))
-            container.stop(timeout=self.stop_timeout)
-            container.remove()
+        async def remove() -> None:
+            await container.stop(t=self.stop_timeout)
+            await container.delete()
 
-        return await self._on_container(remove)
+        return await self._on_container(remove())
 
     async def container_status(self, application_id: uuid.UUID) -> ContainerStatus:
         """The status of an application's container, whose state is MISSING when
         the application has none."""
-
-        def inspect(client: DockerClient) -> Any:
-            try:
-                return client.containers.get(container_name(application_id)).attrs
-            except NotFound:
-                return None
-
-        attributes = await self._call(inspect)
-        if attributes is None:
+        try:
+            attributes = await self._call(self._container(application_id).show())
+        except aiodocker.DockerError as error:
+            if error.status != HTTPStatus.NOT_FOUND:
+                raise
             return ContainerStatus(ContainerState.MISSING)
         state = DOCKER_STATES[attributes["State"]["Status"]]
         return ContainerStatus(
@@ -296,27 +301,31 @@ class DockerService:
         """The last `lines` lines, `LOG_TAIL_MAX_LINES` at most, that an
         application's container wrote to its output and error streams. None when
         the application has no container."""
-
-        def read(client: DockerClient) -> Any:
-            try:
-                container = client.containers.get(container_name(application_id))
-            except NotFound:
-                return None
-            return container.logs(tail=max(1, min(lines, LOG_TAIL_MAX_LINES)))
-
-        output = await self._call(read)
-        if output is None:
+        read = self._container(application_id).log(
+            stdout=True, stderr=True, tail=max(1, min(lines, LOG_TAIL_MAX_LINES))
+        )
+        try:
+            output = await self._call(read)
+        except aiodocker.DockerError as error:
+            if error.status != HTTPStatus.NOT_FOUND:
+                raise
             return None
-        text: str = output.decode(errors="replace")
-        return text.splitlines()
+        return "".join(output).splitlines()
 
-    async def _on_container(self, operation: Callable[[DockerClient], None]) -> bool:
-        """Runs `operation` on an application's container, and returns whether the
-        container existed: absent when the operation starts, or gone before it
-        ends."""
+    def _container(self, application_id: uuid.UUID) -> DockerContainer:
+        """An application's container, addressed by its name, which the daemon
+        looks up on each call."""
+        return self.client.containers.container(container_name(application_id))
+
+    async def _on_container(self, operation: Awaitable[None]) -> bool:
+        """Awaits `operation` on an application's container, and returns whether
+        the container existed: absent when the operation starts, or gone before
+        it ends."""
         try:
             await self._call(operation)
-        except NotFound:
+        except aiodocker.DockerError as error:
+            if error.status != HTTPStatus.NOT_FOUND:
+                raise
             return False
         return True
 
@@ -368,19 +377,15 @@ class DockerService:
         if pending:
             yield pending.rstrip(b"\r").decode(errors="replace")
 
-    async def _call[T](self, operation: Callable[[DockerClient], T]) -> T:
-        """Runs `operation` on the shared client in a worker thread, since docker-py
-        blocks for the whole of each call. Raises DockerUnavailableError when the
+    @staticmethod
+    async def _call[T](operation: Awaitable[T]) -> T:
+        """Awaits `operation` on the daemon. Raises DockerUnavailableError when the
         daemon cannot be reached, on connecting or during the call."""
-
-        def run() -> T:
-            try:
-                client = get_docker_client()
-            except DockerException as error:
-                raise DockerUnavailableError(error) from error
-            try:
-                return operation(client)
-            except DaemonConnectionError as error:
-                raise DockerUnavailableError(error) from error
-
-        return await asyncio.to_thread(run)
+        try:
+            return await operation
+        except aiodocker.DockerError as error:
+            if error.status == UNREACHABLE_STATUS:
+                raise DockerUnavailableError(error.message) from error
+            raise
+        except (aiohttp.ClientConnectionError, aiohttp.ClientPayloadError) as error:
+            raise DockerUnavailableError(error) from error

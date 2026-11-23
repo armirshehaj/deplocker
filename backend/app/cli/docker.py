@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from app.core.conf import settings
+from app.core.docker import docker_client
 from app.services.docker import (
     LOG_TAIL_MAX_LINES,
     ContainerState,
@@ -36,7 +37,8 @@ async def version() -> None:
     """Connect to the Docker daemon as the API does on startup, and show its
     version."""
     try:
-        daemon_version = await DockerService().daemon_version()
+        async with docker_client() as client:
+            daemon_version = await DockerService(client).daemon_version()
     except DockerError as error:
         typer.secho(str(error), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from error
@@ -54,7 +56,8 @@ async def network(
     """Check that the network the deployed applications join exists, as the API
     does on startup."""
     try:
-        await DockerService(network=name).ensure_network()
+        async with docker_client() as client:
+            await DockerService(client, network=name).ensure_network()
     except DockerError as error:
         typer.secho(str(error), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from error
@@ -96,9 +99,10 @@ async def build(
 
     started = time.perf_counter()
     try:
-        image = await DockerService(build_timeout=timeout).build_image(
-            context, dockerfile or context / "Dockerfile", tag, on_output=show
-        )
+        async with docker_client() as client:
+            image = await DockerService(client, build_timeout=timeout).build_image(
+                context, dockerfile or context / "Dockerfile", tag, on_output=show
+            )
     except DockerError as error:
         typer.secho(str(error), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from error
@@ -165,14 +169,15 @@ async def run(
             raise typer.Exit(1)
         variables[name] = value
 
-    service = DockerService()
     try:
-        container = await service.run_container(
-            application_id or uuid.uuid4(),
-            image,
-            variables,
-            ResourceLimits(memory_mb=memory, cpus=cpus),
-        )
+        async with docker_client() as client:
+            service = DockerService(client)
+            container = await service.run_container(
+                application_id or uuid.uuid4(),
+                image,
+                variables,
+                ResourceLimits(memory_mb=memory, cpus=cpus),
+            )
     except DockerError as error:
         typer.secho(str(error), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from error
@@ -192,9 +197,10 @@ async def stop(
     """Stop an application's container as the platform does: its stop signal
     first, and a kill if it does not exit in time."""
     try:
-        stopped = await DockerService(stop_timeout=timeout).stop_container(
-            application_id
-        )
+        async with docker_client() as client:
+            stopped = await DockerService(client, stop_timeout=timeout).stop_container(
+                application_id
+            )
     except DockerError as error:
         typer.secho(str(error), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from error
@@ -211,9 +217,10 @@ async def remove(
 ) -> None:
     """Stop an application's container as `stop` does, then remove it."""
     try:
-        removed = await DockerService(stop_timeout=timeout).remove_container(
-            application_id
-        )
+        async with docker_client() as client:
+            removed = await DockerService(
+                client, stop_timeout=timeout
+            ).remove_container(application_id)
     except DockerError as error:
         typer.secho(str(error), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from error
@@ -229,7 +236,8 @@ async def status(
 ) -> None:
     """Show the state of an application's container as the platform reads it."""
     try:
-        container = await DockerService().container_status(application_id)
+        async with docker_client() as client:
+            container = await DockerService(client).container_status(application_id)
     except DockerError as error:
         typer.secho(str(error), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from error
@@ -260,7 +268,8 @@ async def logs(
     """Show the last lines an application's container wrote to its output and
     error streams."""
     try:
-        output = await DockerService().container_logs(application_id, lines)
+        async with docker_client() as client:
+            output = await DockerService(client).container_logs(application_id, lines)
     except DockerError as error:
         typer.secho(str(error), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from error

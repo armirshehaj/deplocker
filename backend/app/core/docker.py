@@ -1,16 +1,13 @@
-import functools
 import os
 
-import docker
-
-# Where docker-py and the Docker command line find the daemon: DOCKER_HOST, or
-# the socket docker-compose.yml mounts from the host
-DOCKER_HOST = os.environ.get("DOCKER_HOST", "unix:///var/run/docker.sock")
+import aiodocker
 
 
-@functools.cache
-def get_docker_client() -> docker.DockerClient:
-    """The client every operation on the host's Docker daemon shares, connected on
-    first use. Raises DockerException when the daemon is out of reach; the next
-    call tries again."""
-    return docker.from_env()
+def docker_client() -> aiodocker.Docker:
+    """A client of the host's Docker daemon: the one at DOCKER_HOST, else at the
+    socket docker-compose.yml mounts from the host, as for the Docker command line
+    that runs builds. It holds connections on the event loop it is used on until
+    it is closed, as `async with docker_client()` does."""
+    return aiodocker.Docker(
+        url=os.environ.get("DOCKER_HOST", "unix:///var/run/docker.sock")
+    )

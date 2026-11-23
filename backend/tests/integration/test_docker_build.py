@@ -2,12 +2,12 @@ import asyncio
 import contextlib
 import re
 import uuid
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
+from http import HTTPStatus
 from pathlib import Path
 
-import docker
+import aiodocker
 import pytest
-from docker.errors import ImageNotFound
 from httpx import AsyncClient
 
 from app.services.docker import BuildError, BuildTimeoutError, DockerService
@@ -16,13 +16,16 @@ pytestmark = [pytest.mark.docker, pytest.mark.anyio]
 
 
 @pytest.fixture
-def tag() -> Iterator[str]:
+async def tag(docker: aiodocker.Docker) -> AsyncIterator[str]:
     """A name no other image holds; echoed by a build step, it also keeps the
     build cache from replaying that step. The image is removed afterwards."""
     name = f"deplocker-test-build-{uuid.uuid4().hex[:12]}"
     yield name
-    with contextlib.suppress(ImageNotFound):
-        docker.from_env().images.remove(name, force=True)
+    try:
+        await docker.images.delete(name, force=True)
+    except aiodocker.DockerError as error:
+        if error.status != HTTPStatus.NOT_FOUND:
+            raise
 
 
 def build_context(directory: Path, *instructions: str) -> Path:
@@ -51,7 +54,9 @@ def docker_processes() -> list[str]:
     return names
 
 
-async def test_build_with_buildkit_features(tmp_path: Path, tag: str) -> None:
+async def test_build_with_buildkit_features(
+    docker: aiodocker.Docker, tmp_path: Path, tag: str
+) -> None:
     context = build_context(
         tmp_path, f"RUN --mount=type=cache,target=/cache echo {tag}"
     )
@@ -60,28 +65,30 @@ async def test_build_with_buildkit_features(tmp_path: Path, tag: str) -> None:
     async def collect(line: str) -> None:
         output.append(line)
 
-    image = await DockerService().build_image(
+    image = await DockerService(docker).build_image(
         context, context / "Dockerfile", tag, collect
     )
 
     assert any(is_step_output(line, tag) for line in output)
-    assert image.id == docker.from_env().images.get(tag).id
+    assert image.id == (await docker.images.inspect(tag))["Id"]
 
 
-async def test_failed_build(tmp_path: Path, tag: str) -> None:
+async def test_failed_build(docker: aiodocker.Docker, tmp_path: Path, tag: str) -> None:
     context = build_context(tmp_path, f"RUN echo {tag} && exit 3")
 
     with pytest.raises(BuildError) as raised:
-        await DockerService().build_image(context, context / "Dockerfile", tag)
+        await DockerService(docker).build_image(context, context / "Dockerfile", tag)
 
     assert any("exit code: 3" in line for line in raised.value.output_tail)
 
 
-async def test_build_timeout(tmp_path: Path, tag: str) -> None:
+async def test_build_timeout(
+    docker: aiodocker.Docker, tmp_path: Path, tag: str
+) -> None:
     context = build_context(tmp_path, f"RUN echo {tag} && sleep 60")
 
     with pytest.raises(BuildTimeoutError, match="longer than 3s"):
-        await DockerService(build_timeout=3).build_image(
+        await DockerService(docker, build_timeout=3).build_image(
             context, context / "Dockerfile", tag
         )
 
@@ -89,7 +96,7 @@ async def test_build_timeout(tmp_path: Path, tag: str) -> None:
 
 
 async def test_api_answers_while_an_image_builds(
-    client: AsyncClient, tmp_path: Path, tag: str
+    client: AsyncClient, docker: aiodocker.Docker, tmp_path: Path, tag: str
 ) -> None:
     context = build_context(tmp_path, f"RUN echo {tag} && sleep 5")
     step_started = asyncio.Event()
@@ -99,7 +106,7 @@ async def test_api_answers_while_an_image_builds(
             step_started.set()
 
     build = asyncio.create_task(
-        DockerService().build_image(context, context / "Dockerfile", tag, watch)
+        DockerService(docker).build_image(context, context / "Dockerfile", tag, watch)
     )
     await asyncio.wait_for(step_started.wait(), timeout=60)
 

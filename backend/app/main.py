@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.cache import redis
+from app.core.docker import docker_client
 from app.core.migrations import ensure_schema_is_current
 from app.logging_conf.setup import setup_logging
 from app.middlewares.logging_handler import LoggingMiddleware
@@ -32,9 +33,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Refuses to start without the Docker daemon, or the network the deployed
     # applications join
-    docker = DockerService()
-    logger.info("Docker daemon %s is reachable", await docker.daemon_version())
-    await docker.ensure_network()
+    async with docker_client() as client:
+        docker = DockerService(client)
+        logger.info("Docker daemon %s is reachable", await docker.daemon_version())
+        await docker.ensure_network()
 
     yield
 

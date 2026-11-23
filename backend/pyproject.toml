@@ -12,7 +12,7 @@ dependencies = [
     "SQLAlchemy==2.0.46",
     "alembic==1.18.4",
     "asyncpg==0.31.0",
-    "docker==7.1.0",
+    "aiodocker==0.27.0",
     "pwdlib[argon2]==0.3.0",
     "PyJWT==2.15.0",
     "Jinja2==3.1.6",
@@ -108,10 +108,8 @@ no_implicit_reexport = true
 
 [[tool.mypy.overrides]]
 module = [
-    "docker.*",
     "pwdlib.*",
     "pythonjsonlogger.*",
-    "requests.*",
 ]
 ignore_missing_imports = true
 disable_error_code = ["import-untyped"]

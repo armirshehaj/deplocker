@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import aiodocker
 import fakeredis
 import pytest
 from httpx import AsyncClient, Response
@@ -11,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import redis
+from app.core.docker import docker_client
 from app.models import (
     ApplicationModel,
     DeploymentModel,
@@ -275,3 +277,10 @@ async def mock_redis() -> AsyncGenerator[None, None]:
     yield
     await fake.aclose()
     redis.client = original
+
+
+@pytest.fixture()
+async def docker() -> AsyncGenerator[aiodocker.Docker, None]:
+    """A client of the host's Docker daemon, closed after the test."""
+    async with docker_client() as client:
+        yield client
