@@ -158,7 +158,7 @@ $EDITOR /etc/deplocker/.env
 ### 3. Install dependencies and enable the Git hooks
 
 ```sh
-make backend-install-local frontend-install-ci
+make install
 git config core.hooksPath .githooks
 ```
 
@@ -167,7 +167,7 @@ The hooks are described under [Checks](#checks).
 ### 4. Start the stack
 
 ```sh
-make start-dev
+make dev
 ```
 
 This builds the images if they are out of date, starts the backend containers
@@ -178,27 +178,28 @@ terminal to the Vite dev server, which reloads the page as you edit.
 - API: <http://localhost:8080>, with interactive docs at
   <http://localhost:8080/docs>
 
-<kbd>Ctrl</kbd>+<kbd>C</kbd> stops Vite, and `make stop-dev` stops the
+<kbd>Ctrl</kbd>+<kbd>C</kbd> stops Vite, and `make stop` stops the
 containers.
 
 ### Everyday commands
 
-Every command is a [Makefile](Makefile) target.
+Every command is a [Makefile](Makefile) target, and `make help`, or `make`
+alone, lists them all with what each one does.
 
 | Command | What it does |
 | --- | --- |
-| `make start-dev` / `make stop-dev` | Start or stop the development stack |
-| `make start-dev-https` | The same, over HTTPS, for trying passkeys (see below) |
-| `make start-prod` / `make stop-prod` | Run the whole stack in containers, web app included, at <http://localhost:8082> |
-| `make backend-reformat` | Format the Python code and fix the lint errors Ruff can fix |
-| `make frontend-reformat` | Format the frontend code |
-| `make backend-test-ci` | Run the backend tests in a separate, throwaway stack; clear it away afterwards with `make backend-clean-ci` |
-| `make frontend-test-ci` | Run the frontend tests |
-| `make clean-dev` | Remove the containers and their images, so the next start rebuilds them |
+| `make dev` / `make stop` | Start or stop the development stack |
+| `make restart` / `make restart-https` | Stop the containers, then start the stack again as `make dev` or `make dev-https` does |
+| `make dev-https` | The same, over HTTPS, for trying passkeys (see below) |
+| `make preview` | Run the whole stack in containers, the web app's production build included, at <http://localhost:8082>; `make stop` stops it too |
+| `make format` | Format the code and fix the lint errors Ruff can fix |
+| `make backend-test` | Run the backend tests in a separate, throwaway stack; clear it away afterwards with `make test-clean` |
+| `make frontend-test` | Run the frontend tests |
+| `make clean` | Remove the containers and their images, so the next start rebuilds them |
 
 ### Trying passkeys over HTTPS
 
-`make start-dev-https` serves the web app at <https://lvh.me:5173> and forwards
+`make dev-https` serves the web app at <https://lvh.me:5173> and forwards
 API calls through Vite at `/api`, so passkeys are created against a real domain
 over HTTPS, just as in production. `lvh.me` is a public domain that points back
 to `127.0.0.1`.
@@ -252,13 +253,12 @@ targets, so a check gives the same verdict on your machine as in CI.
 
 | Hook | What it does |
 | --- | --- |
-| `pre-commit` | Lints the parts with staged changes through `make lint-ci`: ESLint, Prettier and the TypeScript compiler for the frontend, Ruff's format check and mypy for the backend, run in its test image. When models or migrations are staged, it also checks that the migrations build the schema the models describe. |
+| `pre-commit` | Lints the parts with staged changes, through `make frontend-lint` and `make backend-lint`: ESLint, Prettier and the TypeScript compiler for the frontend, Ruff's format check and mypy for the backend, run in its test image. When models or migrations are staged, it also checks that the migrations build the schema the models describe. |
 | `pre-push` | Rejects pushes to `master`, so changes reach it only through a pull request |
 
 The hooks only report problems; they never rewrite your code. Formatting is
-fixed with `make backend-reformat` or `make frontend-reformat`. Git skips the
-hooks with `--no-verify`, and they stay silent in a clone that has not enabled
-them.
+fixed with `make format`. Git skips the hooks with `--no-verify`, and they stay
+silent in a clone that has not enabled them.
 
 ---
 

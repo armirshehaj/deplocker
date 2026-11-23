@@ -119,7 +119,7 @@ A container uses no more than its `ResourceLimits`: memory, with no swap beyond 
 
 Alembic owns the schema. The container entrypoint (`scripts/entrypoint.sh`) runs `alembic upgrade head` before the app starts, and the FastAPI lifespan calls `ensure_schema_is_current` (`app/core/migrations.py`), which refuses to start unless the database is at the migration head — a stale schema fails loudly rather than being patched at runtime. It then asks the Docker daemon for its version, logs it, and likewise refuses to start when the daemon is out of reach or the deployed applications' network is missing. Alembic (`alembic/env.py`) imports all models explicitly and uses the same `DATABASE_URL` from `app.core.database`.
 
-Any model change needs a migration: CI runs `make backend-migrations-ci`, which applies the migrations to an empty database and fails if `alembic check` finds the models drifting from them. The test suite is the one place that still builds tables with `Base.metadata.create_all` (`tests/conftest.py`).
+Any model change needs a migration: CI runs `make migrations-check`, which applies the migrations to an empty database and fails if `alembic check` finds the models drifting from them. The test suite is the one place that still builds tables with `Base.metadata.create_all` (`tests/conftest.py`).
 
 ### Testing
 
