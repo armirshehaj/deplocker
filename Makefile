@@ -199,8 +199,12 @@ migrations-check:
 	$(DC_MIGRATIONS) down -v --remove-orphans; \
 	exit $$status
 
-## Remove the stacks the backend checks run in, volumes included
+## Remove the stacks the backend checks run in, volumes included, with the
+## containers and images the Docker tests leave behind when a run is cut short
 test-clean:
+	$(D) ps -aq --filter network=$(COMPOSE_TEST_NETWORK) | xargs -r $(D) rm -f
+	$(D) images --filter 'reference=deplocker-test-*' --format '{{.Repository}}:{{.Tag}}' \
+		| xargs -r $(D) rmi -f
 	$(DC_TEST) down -v --remove-orphans
 	$(DC_MIGRATIONS) down -v --remove-orphans
 
