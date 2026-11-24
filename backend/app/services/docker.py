@@ -34,6 +34,10 @@ LOG_TAIL_MAX_LINES = 1000
 # The status of aiodocker's error for a daemon it cannot connect to
 UNREACHABLE_STATUS = 900
 
+# How long the daemon may take to answer a call, beyond any grace period the call
+# waits out
+DAEMON_TIMEOUT_SECONDS = 60
+
 
 class DockerError(Exception):
     """The Docker daemon could not carry out an operation."""
@@ -138,11 +142,13 @@ class DockerService:
         network: str = settings.DOCKER_NETWORK,
         build_timeout: float = settings.DOCKER_BUILD_TIMEOUT_SECONDS,
         stop_timeout: int = settings.DOCKER_STOP_TIMEOUT_SECONDS,
+        daemon_timeout: float = DAEMON_TIMEOUT_SECONDS,
     ) -> None:
         self.client = client
         self.network = network
         self.build_timeout = build_timeout
         self.stop_timeout = stop_timeout
+        self.daemon_timeout = daemon_timeout
 
     async def daemon_version(self) -> str:
         """The version of the daemon the platform builds and runs on."""
@@ -261,7 +267,9 @@ class DockerService:
         `stop_timeout` seconds later. Returns whether the application had a
         container."""
         container = self._container(application_id)
-        return await self._on_container(container.stop(t=self.stop_timeout))
+        return await self._on_container(
+            container.stop(t=self.stop_timeout), grace=self.stop_timeout
+        )
 
     async def remove_container(self, application_id: uuid.UUID) -> bool:
         """Stops an application's container as `stop_container` does, then removes
@@ -273,7 +281,7 @@ class DockerService:
             await container.stop(t=self.stop_timeout)
             await container.delete()
 
-        return await self._on_container(remove())
+        return await self._on_container(remove(), grace=self.stop_timeout)
 
     async def container_status(self, application_id: uuid.UUID) -> ContainerStatus:
         """The status of an application's container, whose state is MISSING when
@@ -317,12 +325,12 @@ class DockerService:
         looks up on each call."""
         return self.client.containers.container(container_name(application_id))
 
-    async def _on_container(self, operation: Awaitable[None]) -> bool:
-        """Awaits `operation` on an application's container, and returns whether
-        the container existed: absent when the operation starts, or gone before
-        it ends."""
+    async def _on_container(self, operation: Awaitable[None], grace: float) -> bool:
+        """Awaits `operation` on an application's container as `_call` does, and
+        returns whether the container existed: absent when the operation starts,
+        or gone before it ends."""
         try:
-            await self._call(operation)
+            await self._call(operation, grace)
         except aiodocker.DockerError as error:
             if error.status != HTTPStatus.NOT_FOUND:
                 raise
@@ -377,12 +385,17 @@ class DockerService:
         if pending:
             yield pending.rstrip(b"\r").decode(errors="replace")
 
-    @staticmethod
-    async def _call[T](operation: Awaitable[T]) -> T:
-        """Awaits `operation` on the daemon. Raises DockerUnavailableError when the
-        daemon cannot be reached, on connecting or during the call."""
+    async def _call[T](self, operation: Awaitable[T], grace: float = 0) -> T:
+        """Awaits `operation` on the daemon, which has `daemon_timeout` seconds to
+        answer beyond the `grace` period the operation waits out. Raises
+        DockerUnavailableError when the daemon cannot be reached or does not answer
+        in time."""
+        limit = self.daemon_timeout + grace
         try:
-            return await operation
+            async with asyncio.timeout(limit):
+                return await operation
+        except TimeoutError as error:
+            raise DockerUnavailableError(f"no answer within {limit:g}s") from error
         except aiodocker.DockerError as error:
             if error.status == UNREACHABLE_STATUS:
                 raise DockerUnavailableError(error.message) from error

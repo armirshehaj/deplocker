@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 
 import pytest
 
@@ -20,6 +21,25 @@ async def test_daemon_lost_during_a_call() -> None:
     with pytest.raises(DockerUnavailableError, match="Docker daemon is unreachable"):
         async with docker_client() as client:
             await DockerService(client).daemon_version()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("silent_daemon")
+async def test_daemon_that_never_answers() -> None:
+    with pytest.raises(DockerUnavailableError, match=r"no answer within 0\.5s"):
+        async with docker_client() as client:
+            await DockerService(client, daemon_timeout=0.5).daemon_version()
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("silent_daemon")
+async def test_stop_waits_out_its_grace_period() -> None:
+    application_id = uuid.uuid4()
+
+    with pytest.raises(DockerUnavailableError, match=r"no answer within 1\.5s"):
+        async with docker_client() as client:
+            service = DockerService(client, stop_timeout=1, daemon_timeout=0.5)
+            await service.stop_container(application_id)
 
 
 @pytest.mark.anyio

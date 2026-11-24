@@ -37,3 +37,25 @@ async def vanishing_daemon(
     monkeypatch.setenv("DOCKER_HOST", f"unix://{socket}")
     async with server:
         yield
+
+
+@pytest.fixture
+async def silent_daemon(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> AsyncIterator[None]:
+    """Points the Docker client at a socket whose daemon reads every request and
+    never answers it."""
+
+    async def never_answer(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        await reader.readuntil(b"\r\n\r\n")
+        # Until the client hangs up
+        await reader.read()
+        writer.close()
+
+    socket = tmp_path / "docker.sock"
+    server = await asyncio.start_unix_server(never_answer, path=socket)
+    monkeypatch.setenv("DOCKER_HOST", f"unix://{socket}")
+    async with server:
+        yield
