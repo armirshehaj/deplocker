@@ -7,6 +7,7 @@ from httpx import AsyncClient, Response
 from pydantic import ValidationError
 
 from app.core import redis
+from app.core.conf import settings
 from app.schemas.applications import ApplicationResponse
 
 fake = Faker()
@@ -65,9 +66,27 @@ async def test_get_application_by_id(
         assert schema_object.dockerfile_path == "./Dockerfile"
         assert schema_object.port == 8000
         assert schema_object.desired_replicas == 1
+        assert schema_object.memory_limit_mb == settings.DOCKER_MEMORY_LIMIT_MB
+        assert schema_object.cpu_limit == settings.DOCKER_CPU_LIMIT
 
     except ValidationError as e:
         pytest.fail(f"Response validation failed: {e.errors()}")
+
+
+@pytest.mark.anyio
+async def test_update_leaves_resource_limits_unchanged(
+    application_create_test: Response, authenticated_client: AsyncClient
+) -> None:
+    application = application_create_test.json()
+
+    response = await authenticated_client.patch(
+        f"/applications/{application['id']}",
+        json={"memory_limit_mb": 65536, "cpu_limit": 64},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["memory_limit_mb"] == application["memory_limit_mb"]
+    assert response.json()["cpu_limit"] == application["cpu_limit"]
 
 
 # "deplocker-api" is a different name, but shares the existing application's slug.

@@ -22,6 +22,9 @@ FRONTEND           = ./frontend
 COMPOSE_DEV_FILE   = docker-compose.yml
 COMPOSE_PROD_FILE  = docker-compose.prod.yml
 COMPOSE_TEST_FILE  = docker-compose.test.yml
+# The test stack's network, which Compose names after its project, and which the
+# containers of the Docker tests join
+COMPOSE_TEST_NETWORK = deplocker-test_deplocker-net
 
 # The backend's checks run in the test stack: the tests under its own project
 # name, the migrations check under one of its own, so neither tears down the
@@ -200,8 +203,12 @@ migrations-check:
 	$(DC_MIGRATIONS) down -v --remove-orphans; \
 	exit $$status
 
-## Remove the stacks the backend checks run in, volumes included
+## Remove the stacks the backend checks run in, volumes included, with the
+## containers and images the Docker tests leave behind when a run is cut short
 test-clean:
+	$(D) ps -aq --filter network=$(COMPOSE_TEST_NETWORK) | xargs -r $(D) rm -f
+	$(D) images --filter 'reference=deplocker-test-*' --format '{{.Repository}}:{{.Tag}}' \
+		| xargs -r $(D) rmi -f
 	$(DC_TEST) down -v --remove-orphans
 	$(DC_MIGRATIONS) down -v --remove-orphans
 

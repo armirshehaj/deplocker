@@ -12,7 +12,7 @@ dependencies = [
     "SQLAlchemy==2.0.46",
     "alembic==1.18.4",
     "asyncpg==0.31.0",
-    "docker==7.1.0",
+    "aiodocker==0.27.0",
     "pwdlib[argon2]==0.3.0",
     "PyJWT==2.15.0",
     "Jinja2==3.1.6",
@@ -90,6 +90,7 @@ line-ending = "auto"
 [tool.pytest.ini_options]
 markers = [
     "network: reaches a server on the internet; deselect with -m 'not network'",
+    "docker: needs the host's Docker daemon; deselect with -m 'not docker'",
 ]
 
 [tool.mypy]

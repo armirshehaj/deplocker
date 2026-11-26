@@ -47,12 +47,14 @@ flowchart LR
     api["api<br/>FastAPI"]
     postgres[("postgres")]
     redis[("redis-stack")]
+    daemon[["Docker daemon<br/>on the host"]]
 
     browser --> caddy
     caddy -->|pages| ui
     caddy -->|API calls, under /api| api
     api --> postgres
     api --> redis
+    api -->|builds and runs applications| daemon
 ```
 
 | Service | Role | Host port |
@@ -101,6 +103,33 @@ The two usual alternatives fall short on the second point:
 - **nginx** takes changes only by rewriting its files and reloading; an API
   that changes upstreams at runtime is a feature of the commercial NGINX Plus.
   Its certificates come from a separate tool or module, set up alongside it.
+
+### Why the Docker socket
+
+Deplocker builds each application into an image and runs it as a container
+beside its own, on the server's Docker daemon. The `api` container reaches that
+daemon through its socket, `/var/run/docker.sock`, mounted from the host.
+
+Access to that socket is root access to the host in all but name: whoever can
+talk to the daemon can start a privileged container with the host's disk
+mounted inside. Deplocker accepts the trade-off and confines it:
+
+- **Only `api` holds the socket.** Caddy, which faces the internet, and the web
+  app never do.
+- **The API alone decides how a container runs.** A tenant chooses the
+  repository, the branch, the Dockerfile, the port, the environment variables
+  and the domain. The build runs the tenant's Dockerfile and the container runs
+  the tenant's code, both unprivileged: nothing a tenant enters reaches the
+  options that hand out the host, such as privileged mode, mounted paths,
+  devices or the host's network.
+
+The usual alternatives remove less risk than they seem to:
+
+- **A socket proxy**, such as docker-socket-proxy, allows or denies requests by
+  endpoint. The API needs the very endpoints that confer root: building images
+  and creating containers.
+- **Docker-in-Docker** gives the API a daemon of its own, but that daemon runs
+  in a privileged container, which is root on the host as well.
 
 ---
 
@@ -253,8 +282,9 @@ gh variable delete CI_RUNNER                   # build and test on GitHub's runn
 1. Checks each part the push changed. Frontend: lint, type check, tests.
    Backend: lint, type check, a check that the migrations match the models,
    and tests. A new branch or a force push checks both.
-2. Removes the backend test stack, even after a failed check, since a
-   self-hosted runner reuses its workspace for the next run.
+2. Removes the backend test stack, even after a failed check, along with any
+   container or image the Docker tests left behind, since a self-hosted runner
+   reuses its workspace and its Docker daemon for the next run.
 3. Builds the `api` and `ui` images and publishes them to the GitHub Container
    Registry, tagged with the commit SHA and `latest`.
 

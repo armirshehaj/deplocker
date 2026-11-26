@@ -1,0 +1,285 @@
+import time
+import uuid
+from pathlib import Path
+from typing import Annotated
+
+import typer
+
+from app.core.conf import settings
+from app.core.docker import docker_client
+from app.services.docker import (
+    LOG_TAIL_MAX_LINES,
+    ContainerState,
+    DockerError,
+    DockerService,
+    ResourceLimits,
+)
+from app.utils.cli.commands import async_command
+from app.utils.docker.names import container_name
+from app.utils.docker.names import image_tag as tag_for
+
+app = typer.Typer(help="Run the Docker service's operations.", no_args_is_help=True)
+
+# The grace period of the commands that stop a container
+StopTimeout = Annotated[
+    int,
+    typer.Option(
+        min=0,
+        help="Kill the container if it has not exited this many seconds after "
+        "its stop signal.",
+    ),
+]
+
+
+@app.command()
+@async_command
+async def version() -> None:
+    """Connect to the Docker daemon as the API does on startup, and show its
+    version."""
+    try:
+        async with docker_client() as client:
+            daemon_version = await DockerService(client).daemon_version()
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"Daemon      {daemon_version}")
+
+
+@app.command()
+@async_command
+async def network(
+    name: Annotated[
+        str, typer.Argument(help="The network the deployed applications join.")
+    ] = settings.DOCKER_NETWORK,
+) -> None:
+    """Check that the network the deployed applications join exists, as the API
+    does on startup."""
+    try:
+        async with docker_client() as client:
+            await DockerService(client, network=name).ensure_network()
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"Network     {name}")
+
+
+@app.command()
+@async_command
+async def build(
+    context: Annotated[
+        Path,
+        typer.Argument(
+            exists=True,
+            file_okay=False,
+            resolve_path=True,
+            help="The directory whose files the build works on.",
+        ),
+    ],
+    tag: Annotated[str, typer.Option("--tag", "-t", help="The image's name.")],
+    dockerfile: Annotated[
+        Path | None,
+        typer.Option(
+            "--file",
+            "-f",
+            resolve_path=True,
+            help="The Dockerfile. Without it, the one at the context's root.",
+        ),
+    ] = None,
+    timeout: Annotated[
+        float, typer.Option(min=0, help="Abort the build after this many seconds.")
+    ] = settings.DOCKER_BUILD_TIMEOUT_SECONDS,
+) -> None:
+    """Build an image with BuildKit as the platform does, showing the build's
+    output as it arrives."""
+
+    async def show(line: str) -> None:
+        typer.echo(line)
+
+    started = time.perf_counter()
+    try:
+        async with docker_client() as client:
+            image = await DockerService(client, build_timeout=timeout).build_image(
+                context, dockerfile or context / "Dockerfile", tag, on_output=show
+            )
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+    elapsed = time.perf_counter() - started
+
+    typer.echo()
+    typer.echo(f"Image       {image.tag}")
+    typer.echo(f"ID          {image.id}")
+    typer.echo(f"Took        {elapsed:.1f}s")
+
+
+@app.command()
+def image_tag(
+    application_id: Annotated[uuid.UUID, typer.Argument(help="The application's id.")],
+    commit_hash: Annotated[str, typer.Argument(help="The commit's full hash.")],
+) -> None:
+    """Show the tag the platform gives the image an application builds from a
+    commit."""
+    try:
+        tag = tag_for(application_id, commit_hash)
+    except ValueError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(tag)
+
+
+@app.command()
+@async_command
+async def run(
+    image: Annotated[str, typer.Argument(help="The image to start.")],
+    application_id: Annotated[
+        uuid.UUID | None,
+        typer.Option(
+            "--application",
+            help="The id of the application the container serves, which names "
+            "the container. Without it, a new random id.",
+            show_default=False,
+        ),
+    ] = None,
+    environment: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--env",
+            "-e",
+            help="An environment variable, as NAME=VALUE. Repeat it for more.",
+        ),
+    ] = None,
+    memory: Annotated[
+        int, typer.Option(min=6, help="The memory the container may use, in MB.")
+    ] = settings.DOCKER_MEMORY_LIMIT_MB,
+    cpus: Annotated[
+        float,
+        typer.Option(min=0.01, help="How many of the host's CPUs it may use."),
+    ] = settings.DOCKER_CPU_LIMIT,
+) -> None:
+    """Start an application's container as the platform does: on the deployed
+    applications' network, with no port published on the host."""
+    variables = {}
+    for assignment in environment or []:
+        name, separator, value = assignment.partition("=")
+        if not name or not separator:
+            typer.secho(f"Not NAME=VALUE: {assignment}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(1)
+        variables[name] = value
+
+    try:
+        async with docker_client() as client:
+            service = DockerService(client)
+            container = await service.run_container(
+                application_id or uuid.uuid4(),
+                image,
+                variables,
+                ResourceLimits(memory_mb=memory, cpus=cpus),
+            )
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"Container   {container.name}")
+    typer.echo(f"ID          {container.id}")
+    typer.echo(f"Network     {service.network}")
+    typer.echo(f"Limits      {memory} MB of memory, {cpus:g} CPUs")
+
+
+@app.command()
+@async_command
+async def stop(
+    application_id: Annotated[uuid.UUID, typer.Argument(help="The application's id.")],
+    timeout: StopTimeout = settings.DOCKER_STOP_TIMEOUT_SECONDS,
+) -> None:
+    """Stop an application's container as the platform does: its stop signal
+    first, and a kill if it does not exit in time."""
+    try:
+        async with docker_client() as client:
+            stopped = await DockerService(client, stop_timeout=timeout).stop_container(
+                application_id
+            )
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    name = container_name(application_id)
+    typer.echo(f"Stopped {name}" if stopped else f"No container {name}")
+
+
+@app.command()
+@async_command
+async def remove(
+    application_id: Annotated[uuid.UUID, typer.Argument(help="The application's id.")],
+    timeout: StopTimeout = settings.DOCKER_STOP_TIMEOUT_SECONDS,
+) -> None:
+    """Stop an application's container as `stop` does, then remove it."""
+    try:
+        async with docker_client() as client:
+            removed = await DockerService(
+                client, stop_timeout=timeout
+            ).remove_container(application_id)
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    name = container_name(application_id)
+    typer.echo(f"Removed {name}" if removed else f"No container {name}")
+
+
+@app.command()
+@async_command
+async def status(
+    application_id: Annotated[uuid.UUID, typer.Argument(help="The application's id.")],
+) -> None:
+    """Show the state of an application's container as the platform reads it."""
+    try:
+        async with docker_client() as client:
+            container = await DockerService(client).container_status(application_id)
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"Container   {container_name(application_id)}")
+    typer.echo(f"State       {container.state.value}")
+    if container.exit_code is not None:
+        typer.echo(f"Exit code   {container.exit_code}")
+    if container.state is not ContainerState.MISSING:
+        typer.echo(f"Restarts    {container.restart_count}")
+
+
+@app.command()
+@async_command
+async def logs(
+    application_id: Annotated[uuid.UUID, typer.Argument(help="The application's id.")],
+    lines: Annotated[
+        int,
+        typer.Option(
+            "--lines",
+            "-n",
+            min=1,
+            max=LOG_TAIL_MAX_LINES,
+            help="How many of the last lines to show.",
+        ),
+    ] = 100,
+) -> None:
+    """Show the last lines an application's container wrote to its output and
+    error streams."""
+    try:
+        async with docker_client() as client:
+            output = await DockerService(client).container_logs(application_id, lines)
+    except DockerError as error:
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from error
+
+    if output is None:
+        typer.secho(
+            f"No container {container_name(application_id)}",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(1)
+    for line in output:
+        typer.echo(line)

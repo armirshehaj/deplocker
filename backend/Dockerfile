@@ -13,6 +13,13 @@ RUN apt-get update \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
+# The Docker command line and its buildx plugin build deployments' images with
+# BuildKit, on the host's daemon. Both are static binaries, so copies from the
+# Alpine-based CLI image run here
+COPY --from=docker:29-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker:29-cli /usr/local/libexec/docker/cli-plugins/docker-buildx \
+     /usr/local/libexec/docker/cli-plugins/docker-buildx
+
 WORKDIR /app
 
 # The virtual environment sits outside /app, so the dev stack's bind mount of the
