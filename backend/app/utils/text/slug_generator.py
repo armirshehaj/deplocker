@@ -1,8 +1,7 @@
-import re
 from typing import Annotated
 
-from anyascii import anyascii
 from pydantic import AfterValidator
+from slugify import slugify
 
 
 def generate_slug(name: str) -> str:
@@ -13,13 +12,9 @@ def generate_slug(name: str) -> str:
         "My___Org" → "my-org"
     """
 
-    slug = anyascii(name)
-    slug = slug.lower()
-
-    slug = re.sub(r"[\s_]", "-", slug)
-    slug = re.sub(r"[^a-z0-9-]", "", slug)
-    slug = re.sub(r"-+", "-", slug)
-    slug = slug.strip("-")
+    # Apostrophes join the words around them: "Alice's" gives "alices", not
+    # "alice-s".
+    slug = slugify(name, replacements=[("'", "")], backend="anyascii")
 
     if not slug:
         raise ValueError("Name must contain at least one alphanumeric character!")

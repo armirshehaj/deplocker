@@ -15,7 +15,13 @@ def test_accented_characters() -> None:
 
 def test_special_characters() -> None:
     slug_result = generate_slug("hello@world!#")
-    assert slug_result == "helloworld"
+    assert slug_result == "hello-world"
+
+
+@pytest.mark.parametrize("name", ["Alice's organization", "Alice\u2019s organization"])
+def test_apostrophes_join_words(name: str) -> None:
+    slug_result = generate_slug(name)
+    assert slug_result == "alices-organization"
 
 
 def test_multiple_spaces_and_hyphens() -> None:
