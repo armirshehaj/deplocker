@@ -20,7 +20,7 @@ dependencies = [
     "slowapi==0.1.9",
     "python-json-logger==4.0.0",
     "redis==7.1.1",
-    "anyascii==0.3.3",
+    "python-slugify[anyascii]==9.2.0",
     "webauthn==2.7.0",
     "typer==0.26.8",
 ]
