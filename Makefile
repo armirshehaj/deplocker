@@ -101,9 +101,13 @@ $(FRONTEND_MODULES): $(FRONTEND)/package-lock.json
 
 .PHONY: dev dev-https preview stop restart restart-https clean format
 
-# Rebuilds the images only when a Dockerfile or the stack definition changes.
-# The `frontend` profile is named so that `ui` is built alongside api.
-$(BUILD_DEV_STAMP): $(COMPOSE_DEV_FILE) $(BACKEND)/Dockerfile $(BACKEND)/.dockerignore $(FRONTEND)/Dockerfile
+# Rebuilds the images only when a Dockerfile, the stack definition or a
+# dependency list changes. The `frontend` profile is named so that `ui` is built
+# alongside api.
+$(BUILD_DEV_STAMP): $(COMPOSE_DEV_FILE) \
+                    $(BACKEND)/Dockerfile $(BACKEND)/.dockerignore \
+                    $(BACKEND)/pyproject.toml $(BACKEND)/uv.lock \
+                    $(FRONTEND)/Dockerfile $(FRONTEND)/package.json $(FRONTEND)/package-lock.json
 	$(DC) -f $(COMPOSE_DEV_FILE) --profile frontend build
 	@touch $(BUILD_DEV_STAMP)
 
