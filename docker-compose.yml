@@ -26,7 +26,6 @@ services:
       - DEV_FRONTEND_URL
     volumes:
       - ./backend:/app
-      - /app/.venv   # keep the image's venv; don't let the bind mount above hide it
     ports:
       # Where the Vite dev server passes /api
       - "127.0.0.1:8080:8080"

@@ -15,8 +15,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# The virtual environment's commands, deplocker among them, run by name
-ENV PATH="/app/.venv/bin:$PATH"
+# The virtual environment sits outside /app, so the dev stack's bind mount of the
+# source leaves it in view; its commands, deplocker among them, run by name
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 
 # Dependencies install ahead of the source, so code changes don't reinstall them
 COPY pyproject.toml uv.lock ./
